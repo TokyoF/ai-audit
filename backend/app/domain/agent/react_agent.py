@@ -21,6 +21,14 @@ Available tools:
 - nmap: Port scanner. Parameters: target (required), scan_type (basic|full|udp|vuln, default: basic)
 - hydra: Brute force tool. Parameters: target (required), service (ssh|ftp|http, default: ssh), username (default: admin)
 - sqlmap: SQL injection scanner. Parameters: url (required), forms (bool), crawl (bool)
+- nikto: web server vulnerability scanner. Parameters: target/url (required), optional port
+- whatweb: web technology fingerprinting. Parameters: url (required)
+- gobuster: directory/file brute force. Parameters: url (required), optional wordlist
+- masscan: ultra-fast port scanner. Parameters: target (required), optional ports (e.g. "1-65535"), optional rate
+- sslscan: TLS/SSL cipher & certificate audit. Parameters: target (required), optional port
+- dnsrecon: DNS enumeration. Parameters: domain (required)
+- enum4linux: SMB/Samba enumeration. Parameters: target (required)
+- nuclei: template-based CVE/misconfig scanner (use for known-CVE detection). Parameters: url/target (required), optional severity (critical,high,medium), optional tags
 
 You MUST respond in this exact format every time:
 
@@ -86,6 +94,9 @@ class ReactAgent:
         audit.status = AuditStatus.scanning
         session.add(audit)
         await session.commit()
+
+        self._history.clear()
+        self._executed_actions.clear()
 
         await self._load_history(session)
 
