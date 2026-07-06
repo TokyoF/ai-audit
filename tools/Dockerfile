@@ -14,9 +14,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dnsutils \
     net-tools \
     whois \
+    whatweb \
+    gobuster \
+    masscan \
+    sslscan \
+    dnsrecon \
+    enum4linux \
+    dirb \
     && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /usr/share/wordlists \
-    && wget -q https://github.com/brannondorsey/naive-hashcat/releases/download/data/rockyou.txt -O /usr/share/wordlists/rockyou.txt
+    && wget -q https://github.com/brannondorsey/naive-hashcat/releases/download/data/rockyou.txt -O /usr/share/wordlists/rockyou.txt \
+    && wget -q https://raw.githubusercontent.com/v0re/dirb/master/wordlists/common.txt -O /usr/share/wordlists/common.txt
+
+RUN wget -q https://github.com/projectdiscovery/nuclei/releases/download/v3.3.5/nuclei_3.3.5_linux_amd64.zip -O /tmp/nuclei.zip \
+    && apt-get update && apt-get install -y --no-install-recommends unzip \
+    && unzip -o /tmp/nuclei.zip -d /usr/local/bin nuclei \
+    && rm /tmp/nuclei.zip \
+    && rm -rf /var/lib/apt/lists/* \
+    && nuclei -update-templates || true
 
 CMD ["tail", "-f", "/dev/null"]
