@@ -48,6 +48,12 @@ Rules:
 - Report every vulnerability you find as a FINDING
 - Be thorough but efficient
 - Never run destructive commands
+
+Diversification rules:
+- Do NOT repeat an identical ACTION with identical PARAMS. If a scan already ran, choose a DIFFERENT tool or a different nmap scan_type.
+- Escalate nmap scans progressively: start with basic, then full (all ports), then vuln (NSE vuln scripts), and udp when relevant. Use each scan_type at most once unless new information justifies it.
+- After enumeration, pivot to service-specific tools: hydra for exposed auth services (ssh/ftp/http), sqlmap for web apps with parameters.
+- Only respond DONE when you have tried multiple distinct techniques and no further useful action remains. Do not declare DONE just because one scan finished.
 """
 
 
@@ -69,6 +75,7 @@ class ReactAgent:
     is_running: bool = False
     _history: list[str] = field(default_factory=list)
     _failed_tools: set = field(default_factory=set)
+    _executed_actions: set = field(default_factory=set)
     _cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     max_steps: int = 20
 
@@ -83,7 +90,7 @@ class ReactAgent:
         await self._load_history(session)
 
         if self._history:
-            self._history.append("USER: Continue the security audit from where we left off. Analyze what was done before and decide the next step.")
+            self._history.append("USER: Resume this audit. Review what was already tried above and continue with a NEW technique or tool that has NOT been used yet. Do NOT respond DONE unless you have genuinely exhausted distinct approaches.")
         else:
             initial_prompt = f"Begin a security audit on target: {self.target_host}\nStart with reconnaissance."
             self._history.append(f"USER: {initial_prompt}")
@@ -104,6 +111,18 @@ class ReactAgent:
                 if parsed["type"] == "action":
                     await self._emit(AgentStep(step_type="thought", content=parsed["thought"]))
                     await self._log_step(session, "thought", parsed["thought"])
+
+                    action_key = f"{parsed['tool']}:{json.dumps(parsed['params'], sort_keys=True)}"
+                    if action_key in self._executed_actions:
+                        duplicate_msg = (
+                            f"You already executed '{parsed['tool']}' with these exact parameters. "
+                            "Do NOT repeat it. Choose a different tool or a different nmap scan_type."
+                        )
+                        await self._emit(AgentStep(step_type="observation", content=duplicate_msg))
+                        await self._log_step(session, "observation", duplicate_msg)
+                        self._history.append(f"OBSERVATION: {duplicate_msg}")
+                        continue
+                    self._executed_actions.add(action_key)
 
                     tool_result = await self._execute_tool(parsed["tool"], parsed["params"])
 
@@ -224,7 +243,12 @@ class ReactAgent:
             if log.step_type == StepType.thought:
                 self._history.append(f"ASSISTANT: THOUGHT: {log.content}")
             elif log.step_type == StepType.action:
-                self._history.append(f"ASSISTANT: ACTION: {log.tool_used}\nPARAMS: {{}}")
+                if log.command_executed:
+                    self._history.append(f"ASSISTANT: ACTION: {log.tool_used}\nPARAMS: (executed as: {log.command_executed})")
+                else:
+                    self._history.append(f"ASSISTANT: ACTION: {log.tool_used}")
+                action_key = f"{log.tool_used}:{log.command_executed or '{}'}"
+                self._executed_actions.add(action_key)
             elif log.step_type == StepType.observation:
                 self._history.append(f"OBSERVATION: {log.content}")
 

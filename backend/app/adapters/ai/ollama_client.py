@@ -19,7 +19,7 @@ class OllamaClient:
                     "prompt": prompt,
                     "system": system,
                     "stream": False,
-                    "options": {"temperature": 0.3, "num_predict": 2048},
+                    "options": {"temperature": 0.6, "num_predict": 2048},
                 },
             )
             response.raise_for_status()
@@ -35,7 +35,7 @@ class OllamaClient:
                     "prompt": prompt,
                     "system": system,
                     "stream": True,
-                    "options": {"temperature": 0.3, "num_predict": 2048},
+                    "options": {"temperature": 0.6, "num_predict": 2048},
                 },
             ) as response:
                 async for line in response.aiter_lines():
