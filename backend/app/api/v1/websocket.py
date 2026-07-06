@@ -93,6 +93,23 @@ async def audit_stream(websocket: WebSocket, audit_id: str):
                     guidance_text = msg.get("content", "")
                     if guidance_text:
                         agent._history.append(f"USER: {guidance_text}")
+                        if agent_task is None or agent_task.done():
+                            # Agent had stopped/finished: restart it with the
+                            # operator-supplied context instead of dropping
+                            # the connection.
+                            if hasattr(agent, "_cancel_event"):
+                                agent._cancel_event.clear()
+                            async with AsyncSession(engine) as guidance_session:
+                                restart_audit = await guidance_session.get(Audit, audit_uuid)
+                                if restart_audit:
+                                    restart_audit.status = AuditStatus.scanning
+                                    guidance_session.add(restart_audit)
+                                    await guidance_session.commit()
+                            agent_task = asyncio.create_task(run_agent())
+                            await websocket.send_json({
+                                "type": "thought",
+                                "content": "Reanudando con el contexto del operador...",
+                            })
             except asyncio.TimeoutError:
                 pass
             except WebSocketDisconnect:
