@@ -54,8 +54,11 @@ export default function AuditDetailPage() {
   const [connected, setConnected] = useState(false);
   const [running, setRunning] = useState(false);
   const [vulnerabilities, setVulnerabilities] = useState<VulnerabilityData[]>([]);
+  const [openPorts, setOpenPorts] = useState<any[]>([]);
+  const [attacks, setAttacks] = useState<any[]>([]);
   const [audit, setAudit] = useState<AuditData | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const pendingContextRef = useRef<string | null>(null);
   const [guidance, setGuidance] = useState("");
   const terminalRef = useRef<HTMLDivElement>(null);
 
@@ -65,6 +68,7 @@ export default function AuditDetailPage() {
       return;
     }
     fetchAudit();
+    fetchFindings();
   }, []);
 
   useEffect(() => {
@@ -96,6 +100,17 @@ export default function AuditDetailPage() {
       if (res.ok) {
         const data = await res.json();
         setVulnerabilities(data.vulnerabilities || []);
+        setOpenPorts(data.open_ports || []);
+        setAttacks(data.suggested_attacks || []);
+        if (!running && Array.isArray(data.logs)) {
+          const mappedLogs: AgentStep[] = data.logs.map((log: any) => ({
+            type: log.step_type,
+            content: log.content,
+            tool_used: log.tool_used,
+            command_executed: log.command_executed,
+          }));
+          setSteps(mappedLogs);
+        }
       }
     } catch (e) {
       console.warn("findings fetch failed", e);
@@ -105,12 +120,17 @@ export default function AuditDetailPage() {
   const startAgent = () => {
     if (!token) return;
     setRunning(true);
-    setSteps([]);
 
     const ws = new WebSocket(`ws://localhost:8000/api/v1/audits/${auditId}/stream?token=${token}`);
     wsRef.current = ws;
 
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      setConnected(true);
+      if (pendingContextRef.current) {
+        ws.send(JSON.stringify({ type: "guidance", content: pendingContextRef.current }));
+        pendingContextRef.current = null;
+      }
+    };
 
     ws.onmessage = (event) => {
       const data: AgentStep = JSON.parse(event.data);
@@ -152,6 +172,13 @@ export default function AuditDetailPage() {
       setSteps((prev) => [...prev, { type: "thought", content: `📝 Auditor: ${guidance.trim()}`, audit_status: "scanning" }]);
       setGuidance("");
     }
+  };
+
+  const startAgentWithContext = () => {
+    if (!guidance.trim()) return;
+    pendingContextRef.current = guidance.trim();
+    setGuidance("");
+    startAgent();
   };
 
   return (
@@ -312,27 +339,29 @@ export default function AuditDetailPage() {
               )}
 
               {/* Guidance input */}
-              {running && (
-                <div className="px-4 py-3 border-t border-[#262626] bg-[#0a0a0a]/50">
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={guidance}
-                      onChange={(e) => setGuidance(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && sendGuidance()}
-                      placeholder="Guía al agente: 'escanea puerto 8080', 'prueba SQLi en /login'..."
-                      className="flex-1 px-3 py-2 bg-[#0a0a0a] border border-[#262626] rounded-lg text-white text-xs placeholder-neutral-600 focus:outline-none focus:ring-1 focus:ring-[#84cc16]/50 focus:border-[#84cc16] font-mono"
-                    />
-                    <button
-                      onClick={sendGuidance}
-                      disabled={!guidance.trim()}
-                      className="px-3 py-2 bg-[#84cc16]/20 hover:bg-[#84cc16]/30 text-[#84cc16] border border-[#84cc16]/30 rounded-lg text-xs font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      Enviar
-                    </button>
-                  </div>
+              <div className="px-4 py-3 border-t border-[#262626] bg-[#0a0a0a]/50">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={guidance}
+                    onChange={(e) => setGuidance(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && (running ? sendGuidance() : startAgentWithContext())}
+                    placeholder={
+                      running
+                        ? "Guía al agente: 'escanea puerto 8080', 'prueba SQLi en /login'..."
+                        : "Contexto para reanudar: qué debe hacer el agente al iniciar..."
+                    }
+                    className="flex-1 px-3 py-2 bg-[#0a0a0a] border border-[#262626] rounded-lg text-white text-xs placeholder-neutral-600 focus:outline-none focus:ring-1 focus:ring-[#84cc16]/50 focus:border-[#84cc16] font-mono"
+                  />
+                  <button
+                    onClick={() => (running ? sendGuidance() : startAgentWithContext())}
+                    disabled={!guidance.trim()}
+                    className="px-3 py-2 bg-[#84cc16]/20 hover:bg-[#84cc16]/30 text-[#84cc16] border border-[#84cc16]/30 rounded-lg text-xs font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    {running ? "Enviar" : "Reanudar con contexto"}
+                  </button>
                 </div>
-              )}
+              </div>
             </div>
           </div>
 
@@ -363,6 +392,53 @@ export default function AuditDetailPage() {
                   <span className="text-[#84cc16] font-semibold">{vulnerabilities.length}</span>
                 </div>
               </div>
+            </div>
+
+            {/* Open Ports */}
+            <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-white mb-3">Reconocimiento — Puertos abiertos</h3>
+              {openPorts.length === 0 ? (
+                <p className="text-xs text-neutral-600">Sin puertos detectados aún</p>
+              ) : (
+                <div className="space-y-2">
+                  {openPorts.map((p, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center justify-between gap-2 p-2 bg-[#0a0a0a] border border-[#262626] rounded-lg text-xs"
+                    >
+                      <span className="text-white font-mono">
+                        {p.port}/{p.protocol}
+                      </span>
+                      <span className="text-neutral-400 truncate">
+                        {p.service}
+                        {p.version ? ` ${p.version}` : ""}
+                      </span>
+                      <span className="text-[10px] text-[#84cc16] uppercase whitespace-nowrap">{p.state}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Suggested Attacks */}
+            <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-white mb-3">Ataques posibles</h3>
+              {attacks.length === 0 ? (
+                <p className="text-xs text-neutral-600">Sin sugerencias aún</p>
+              ) : (
+                <div className="space-y-2">
+                  {attacks.map((a, i) => (
+                    <div key={i} className="p-3 bg-[#0a0a0a] border border-[#262626] rounded-lg">
+                      <span className="text-xs font-medium text-white">
+                        {a.port} · {a.service}
+                      </span>
+                      <p className="text-[11px] text-neutral-400 mt-1">
+                        → <span className="text-[#84cc16] font-semibold">{a.tool}</span>: {a.reason}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Vulnerabilities */}
