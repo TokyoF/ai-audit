@@ -30,6 +30,17 @@ services:
     restart: unless-stopped
 
 
+  tools:
+    build:
+      context: ./tools
+      dockerfile: Dockerfile
+    container_name: aiaudit-tools
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - aiaudit-network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   ollama_models:
