@@ -41,6 +41,17 @@ services:
       - aiaudit-network
     restart: unless-stopped
 
+  aiaudit-target:
+    build: ./vulnerable-target
+    container_name: aiaudit-target
+    networks:
+      - aiaudit-network
+    ports:
+      - "8080:80"
+      - "2222:22"
+      - "2121:21"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   ollama_models:
