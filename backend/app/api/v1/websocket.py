@@ -1,4 +1,4 @@
-import json
+import asyncio
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -8,7 +8,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.adapters.db.session import engine
 from app.core.security import decode_access_token
 from app.domain.agent.react_agent import ReactAgent
-from app.domain.models.audit import Audit, AuditStatus
+from app.domain.models.audit import Audit
 from app.domain.models.target import Target
 
 router = APIRouter()
@@ -47,52 +47,88 @@ async def audit_stream(websocket: WebSocket, audit_id: str):
             select(Target).where(Target.id == audit.target_id)
         )
         target = target_result.first()
+        target_host = target.host
 
-        agent = ReactAgent(session=session, audit=audit, target_host=target.host)
+    agent = ReactAgent(audit_id=audit_uuid, target_host=target_host)
 
-        try:
-            agent_gen = agent.run()
-            step = await agent_gen.__anext__()
+    async def run_agent():
+        async with AsyncSession(engine) as agent_session:
+            try:
+                await agent.run(agent_session)
+            except Exception as e:
+                await agent.step_queue.put(
+                    type("AgentStep", (), {"step_type": "error", "content": str(e), "tool_used": None, "command_executed": None})()
+                )
 
-            while True:
-                await websocket.send_json({
-                    "type": step.step_type,
-                    "content": step.content,
-                    "tool_used": step.tool_used,
-                    "command_executed": step.command_executed,
-                    "audit_status": audit.status.value,
-                })
+    agent_task = asyncio.create_task(run_agent())
 
-                if audit.status == AuditStatus.awaiting_decision:
+    try:
+        while True:
+            # Check for incoming messages (non-blocking)
+            try:
+                msg = await asyncio.wait_for(websocket.receive_json(), timeout=0.01)
+                decision = msg.get("decision", "")
+                if decision == "stop":
+                    await agent.cancel()
+                    await agent.send_decision("stop")
+                    break
+                elif decision in ("continue", "deeper", "skip"):
+                    await agent.send_decision(decision)
+                elif msg.get("type") == "guidance":
+                    guidance_text = msg.get("content", "")
+                    if guidance_text:
+                        agent._history.append(f"USER: {guidance_text}")
+            except asyncio.TimeoutError:
+                pass
+            except WebSocketDisconnect:
+                await agent.cancel()
+                break
+
+            # Get next step from agent
+            try:
+                step = await asyncio.wait_for(agent.step_queue.get(), timeout=0.5)
+            except asyncio.TimeoutError:
+                if agent_task.done():
+                    break
+                continue
+
+            await websocket.send_json({
+                "type": step.step_type,
+                "content": step.content,
+                "tool_used": step.tool_used,
+                "command_executed": step.command_executed,
+                "audit_status": "awaiting_decision" if step.content == "Vulnerability detected. Waiting for auditor decision..." else ("idle" if step.step_type == "done" else "scanning"),
+            })
+
+            if step.step_type == "done":
+                break
+
+            if step.content == "Vulnerability detected. Waiting for auditor decision...":
+                try:
                     decision_data = await websocket.receive_json()
                     decision = decision_data.get("decision", "continue")
-                    try:
-                        step = await agent_gen.asend(decision)
-                    except StopAsyncIteration:
-                        break
-                else:
-                    try:
-                        step = await agent_gen.__anext__()
-                    except StopAsyncIteration:
-                        break
+                    if decision == "stop":
+                        await agent.cancel()
+                    await agent.send_decision(decision)
+                except WebSocketDisconnect:
+                    await agent.send_decision("stop")
+                    break
 
-            await websocket.send_json({
-                "type": "done",
-                "content": "Audit completed",
-                "audit_status": "idle",
-            })
-
-        except WebSocketDisconnect:
-            audit.status = AuditStatus.idle
-            session.add(audit)
-            await session.commit()
-        except Exception as e:
-            await websocket.send_json({
-                "type": "error",
-                "content": str(e),
-            })
-        finally:
+    except WebSocketDisconnect:
+        await agent.send_decision("stop")
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "content": str(e)})
+        except Exception:
+            pass
+    finally:
+        if not agent_task.done():
+            agent_task.cancel()
             try:
-                await websocket.close()
-            except Exception:
+                await agent_task
+            except (asyncio.CancelledError, Exception):
                 pass
+        try:
+            await websocket.close()
+        except Exception:
+            pass

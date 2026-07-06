@@ -56,6 +56,7 @@ export default function AuditDetailPage() {
   const [vulnerabilities, setVulnerabilities] = useState<VulnerabilityData[]>([]);
   const [audit, setAudit] = useState<AuditData | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const [guidance, setGuidance] = useState("");
   const terminalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -136,6 +137,14 @@ export default function AuditDetailPage() {
     }
   };
 
+  const sendGuidance = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && guidance.trim()) {
+      wsRef.current.send(JSON.stringify({ type: "guidance", content: guidance.trim() }));
+      setSteps((prev) => [...prev, { type: "thought", content: `📝 Auditor: ${guidance.trim()}`, audit_status: "scanning" }]);
+      setGuidance("");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#0a0a0a] relative">
       {/* Background effects */}
@@ -189,7 +198,7 @@ export default function AuditDetailPage() {
                   </div>
                   <span className="text-xs text-neutral-500 ml-2 font-mono">ai-audit-agent</span>
                 </div>
-                {!running && status !== "idle" && (
+                {!running && (
                   <button
                     onClick={startAgent}
                     className="px-3 py-1.5 bg-[#84cc16] hover:bg-[#a3e635] text-[#0a0a0a] font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5"
@@ -198,6 +207,17 @@ export default function AuditDetailPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
                     </svg>
                     Iniciar agente
+                  </button>
+                )}
+                {running && (
+                  <button
+                    onClick={() => sendDecision("stop")}
+                    className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 font-semibold rounded-lg text-xs transition-all flex items-center gap-1.5"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
+                    </svg>
+                    Detener
                   </button>
                 )}
               </div>
@@ -277,6 +297,29 @@ export default function AuditDetailPage() {
                       className="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-lg text-xs font-medium transition-all"
                     >
                       Detener
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Guidance input */}
+              {running && (
+                <div className="px-4 py-3 border-t border-[#262626] bg-[#0a0a0a]/50">
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={guidance}
+                      onChange={(e) => setGuidance(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && sendGuidance()}
+                      placeholder="Guía al agente: 'escanea puerto 8080', 'prueba SQLi en /login'..."
+                      className="flex-1 px-3 py-2 bg-[#0a0a0a] border border-[#262626] rounded-lg text-white text-xs placeholder-neutral-600 focus:outline-none focus:ring-1 focus:ring-[#84cc16]/50 focus:border-[#84cc16] font-mono"
+                    />
+                    <button
+                      onClick={sendGuidance}
+                      disabled={!guidance.trim()}
+                      className="px-3 py-2 bg-[#84cc16]/20 hover:bg-[#84cc16]/30 text-[#84cc16] border border-[#84cc16]/30 rounded-lg text-xs font-medium transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      Enviar
                     </button>
                   </div>
                 </div>
