@@ -12,6 +12,7 @@ from app.domain.models.audit_log import AuditLog
 from app.domain.models.target import Target
 from app.domain.models.user import User
 from app.domain.models.vulnerability import Vulnerability
+from app.domain.agent.recon_parser import parse_open_ports, suggest_attacks
 from app.domain.schemas.audit import (
     AuditLogResponse,
     AuditResponse,
@@ -154,11 +155,16 @@ async def get_findings(
     logs = await session.exec(
         select(AuditLog).where(AuditLog.audit_id == audit_id).order_by(AuditLog.timestamp.asc())
     )
+    log_rows = logs.all()
+    open_ports = parse_open_ports(log_rows)
+    suggested_attacks = suggest_attacks(open_ports)
     return FindingsResponse(
         audit_id=audit.id,
         status=audit.status,
         vulnerabilities=vulns.all(),
-        logs=logs.all(),
+        logs=log_rows,
+        open_ports=open_ports,
+        suggested_attacks=suggested_attacks,
     )
 
 

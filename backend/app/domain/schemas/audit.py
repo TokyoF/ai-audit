@@ -46,8 +46,25 @@ class VulnerabilityResponse(BaseModel):
     discovered_at: datetime
 
 
+class OpenPortResponse(BaseModel):
+    port: int
+    protocol: str
+    state: str
+    service: str
+    version: str | None = None
+
+
+class SuggestedAttackResponse(BaseModel):
+    port: int
+    service: str
+    tool: str
+    reason: str
+
+
 class FindingsResponse(BaseModel):
     audit_id: uuid.UUID
     status: AuditStatus
     vulnerabilities: list[VulnerabilityResponse]
     logs: list[AuditLogResponse]
+    open_ports: list[OpenPortResponse] = []
+    suggested_attacks: list[SuggestedAttackResponse] = []
