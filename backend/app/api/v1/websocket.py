@@ -2,13 +2,15 @@ import asyncio
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from sqlalchemy import func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.adapters.db.session import engine
 from app.core.security import decode_access_token
 from app.domain.agent.react_agent import ReactAgent
-from app.domain.models.audit import Audit
+from app.domain.models.audit import Audit, AuditStatus
+from app.domain.models.audit_log import AuditLog
 from app.domain.models.target import Target
 
 router = APIRouter()
@@ -48,6 +50,19 @@ async def audit_stream(websocket: WebSocket, audit_id: str):
         )
         target = target_result.first()
         target_host = target.host
+
+        if audit.status == AuditStatus.idle:
+            log_count_result = await session.exec(
+                select(func.count()).select_from(AuditLog).where(AuditLog.audit_id == audit_uuid)
+            )
+            has_history = (log_count_result.first() or 0) > 0
+            if has_history:
+                # Explicit RESUME: a finished audit with prior history is
+                # being reconnected to, so flip it back to scanning and let
+                # the agent continue with new techniques instead of a blind rerun.
+                audit.status = AuditStatus.scanning
+                session.add(audit)
+                await session.commit()
 
     agent = ReactAgent(audit_id=audit_uuid, target_host=target_host)
 
