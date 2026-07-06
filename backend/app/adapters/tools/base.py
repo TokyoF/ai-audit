@@ -3,6 +3,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
+TOOLS_CONTAINER = "aiaudit-tools"
+
+
 @dataclass
 class ToolResult:
     tool_name: str
@@ -20,25 +23,46 @@ class BaseTool(ABC):
         ...
 
     async def execute(self, **kwargs) -> ToolResult:
-        cmd = self.build_command(**kwargs)
+        normalized_kwargs = {
+            key: ("host.docker.internal" if value in ("localhost", "127.0.0.1") else value)
+            for key, value in kwargs.items()
+        }
+        cmd = self.build_command(**normalized_kwargs)
         command_str = " ".join(cmd)
+        docker_cmd = ["docker", "exec", TOOLS_CONTAINER] + cmd
+        process = None
         try:
             process = await asyncio.create_subprocess_exec(
-                *cmd,
+                *docker_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=300)
             output = stdout.decode(errors="replace")
             if stderr:
-                output += "\n" + stderr.decode(errors="replace")
+                err_text = stderr.decode(errors="replace")
+                if err_text.strip():
+                    output += "\n" + err_text
+            output = output.strip() or "(no output)"
+            if process.returncode != 0:
+                lowered = output.lower()
+                if (
+                    "no such container" in lowered
+                    or "is not running" in lowered
+                    or "cannot connect to the docker daemon" in lowered
+                    or "error during connect" in lowered
+                ):
+                    output = "ENV_ERROR: " + output
             return ToolResult(
                 tool_name=self.name,
                 command=command_str,
-                output=output.strip(),
+                output=output,
                 success=process.returncode == 0,
             )
         except asyncio.TimeoutError:
+            if process is not None:
+                process.kill()
+                await process.wait()
             return ToolResult(
                 tool_name=self.name,
                 command=command_str,
@@ -49,6 +73,6 @@ class BaseTool(ABC):
             return ToolResult(
                 tool_name=self.name,
                 command=command_str,
-                output=f"Error: {self.name} not found. Make sure it is installed.",
+                output="ENV_ERROR: docker not found. Make sure Docker is running.",
                 success=False,
             )

@@ -1,10 +1,10 @@
+import asyncio
 import json
 import re
-import uuid
-from collections.abc import AsyncGenerator
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from dataclasses import dataclass
 
+from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.adapters.ai.ollama_client import ollama_client
@@ -59,110 +59,177 @@ class AgentStep:
     command_executed: str | None = None
 
 
+@dataclass
 class ReactAgent:
-    def __init__(self, session: AsyncSession, audit: Audit, target_host: str):
-        self.session = session
-        self.audit = audit
-        self.target_host = target_host
-        self.history: list[str] = []
-        self.max_steps = 20
+    audit_id: str
+    target_host: str
+    step_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
+    decision_event: asyncio.Event = field(default_factory=asyncio.Event)
+    decision_value: str = "continue"
+    is_running: bool = False
+    _history: list[str] = field(default_factory=list)
+    _failed_tools: set = field(default_factory=set)
+    _cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    max_steps: int = 20
 
-    async def run(self) -> AsyncGenerator[AgentStep, str | None]:
-        self.audit.status = AuditStatus.scanning
-        self.session.add(self.audit)
-        await self.session.commit()
+    async def run(self, session: AsyncSession) -> None:
+        self.is_running = True
 
-        initial_prompt = f"Begin a security audit on target: {self.target_host}\nStart with reconnaissance."
-        self.history.append(f"USER: {initial_prompt}")
+        audit = await session.get(Audit, self.audit_id)
+        audit.status = AuditStatus.scanning
+        session.add(audit)
+        await session.commit()
 
-        for step_num in range(self.max_steps):
-            prompt = "\n".join(self.history)
-            response = await ollama_client.generate(prompt=prompt, system=SYSTEM_PROMPT)
-            self.history.append(f"ASSISTANT: {response}")
+        await self._load_history(session)
 
-            parsed = self._parse_response(response)
+        if self._history:
+            self._history.append("USER: Continue the security audit from where we left off. Analyze what was done before and decide the next step.")
+        else:
+            initial_prompt = f"Begin a security audit on target: {self.target_host}\nStart with reconnaissance."
+            self._history.append(f"USER: {initial_prompt}")
 
-            if parsed["type"] == "action":
-                thought_step = AgentStep(step_type="thought", content=parsed["thought"])
-                yield thought_step
-                await self._log_step(thought_step)
-
-                tool_result = await self._execute_tool(parsed["tool"], parsed["params"])
-                action_step = AgentStep(
-                    step_type="action",
-                    content=f"Executing {parsed['tool']}",
-                    tool_used=parsed["tool"],
-                    command_executed=tool_result.command,
-                )
-                yield action_step
-                await self._log_step(action_step)
-
-                observation_step = AgentStep(
-                    step_type="observation",
-                    content=tool_result.output[:3000],
-                )
-                yield observation_step
-                await self._log_step(observation_step)
-
-                self.history.append(f"OBSERVATION: {tool_result.output[:3000]}")
-
-            elif parsed["type"] == "finding":
-                thought_step = AgentStep(step_type="thought", content=parsed["thought"])
-                yield thought_step
-                await self._log_step(thought_step)
-
-                await self._save_vulnerability(parsed)
-
-                finding_step = AgentStep(
-                    step_type="observation",
-                    content=f"VULNERABILITY FOUND: [{parsed['severity'].upper()}] {parsed['title']}\n{parsed['description']}",
-                )
-                yield finding_step
-                await self._log_step(finding_step)
-
-                self.audit.status = AuditStatus.awaiting_decision
-                self.session.add(self.audit)
-                await self.session.commit()
-
-                decision = yield AgentStep(
-                    step_type="thought",
-                    content="Vulnerability detected. Waiting for auditor decision...",
-                )
-
-                if decision == "stop":
+        try:
+            for _ in range(self.max_steps):
+                if self._cancel_event.is_set():
                     break
-                elif decision == "deeper":
-                    self.audit.status = AuditStatus.exploiting
-                    self.session.add(self.audit)
-                    await self.session.commit()
-                    self.history.append(f"USER: Investigate this vulnerability deeper: {parsed['title']}")
-                elif decision == "skip":
-                    self.audit.status = AuditStatus.scanning
-                    self.session.add(self.audit)
-                    await self.session.commit()
-                    self.history.append("USER: Skip this finding and continue scanning.")
+                prompt = "\n".join(self._history)
+
+                await self._emit(AgentStep(step_type="thought", content="Thinking..."))
+
+                response = await ollama_client.generate(prompt=prompt, system=SYSTEM_PROMPT)
+                self._history.append(f"ASSISTANT: {response}")
+
+                parsed = self._parse_response(response)
+
+                if parsed["type"] == "action":
+                    await self._emit(AgentStep(step_type="thought", content=parsed["thought"]))
+                    await self._log_step(session, "thought", parsed["thought"])
+
+                    tool_result = await self._execute_tool(parsed["tool"], parsed["params"])
+
+                    await self._emit(AgentStep(
+                        step_type="action",
+                        content=f"Executing {parsed['tool']}",
+                        tool_used=parsed["tool"],
+                        command_executed=tool_result.command,
+                    ))
+                    await self._log_step(session, "action", f"Executing {parsed['tool']}", parsed["tool"], tool_result.command)
+
+                    is_env_error = tool_result.output.strip().startswith("ENV_ERROR:")
+
+                    if is_env_error:
+                        observation = (
+                            "Entorno no disponible: el contenedor de herramientas (aiaudit-tools) "
+                            "o Docker no responde. Verifica que el contenedor esté corriendo."
+                        )
+                    else:
+                        observation = tool_result.output[:3000]
+
+                    await self._emit(AgentStep(step_type="observation", content=observation))
+                    await self._log_step(session, "observation", observation)
+
+                    if is_env_error:
+                        self._history.append(f"OBSERVATION: {observation}")
+                    elif not tool_result.success and "not found" in tool_result.output.lower():
+                        self._failed_tools.add(parsed["tool"])
+                        available = [t for t in AVAILABLE_TOOLS if t not in self._failed_tools]
+                        if not available:
+                            self._history.append(f"OBSERVATION: {observation}\nUSER: All tools are unavailable. End the audit with a DONE response summarizing what happened.")
+                        else:
+                            self._history.append(f"OBSERVATION: {observation}\nUSER: The tool '{parsed['tool']}' is not installed and unavailable. Do NOT try it again. Available tools: {available}. If no tools can help, respond with DONE.")
+                    else:
+                        self._history.append(f"OBSERVATION: {observation}")
+
+                elif parsed["type"] == "finding":
+                    await self._emit(AgentStep(step_type="thought", content=parsed["thought"]))
+                    await self._log_step(session, "thought", parsed["thought"])
+
+                    await self._save_vulnerability(session, parsed)
+
+                    finding_msg = f"VULNERABILITY FOUND: [{parsed['severity'].upper()}] {parsed['title']}\n{parsed['description']}"
+                    await self._emit(AgentStep(step_type="observation", content=finding_msg))
+                    await self._log_step(session, "observation", finding_msg)
+
+                    audit = await session.get(Audit, self.audit_id)
+                    audit.status = AuditStatus.awaiting_decision
+                    session.add(audit)
+                    await session.commit()
+
+                    await self._emit(AgentStep(
+                        step_type="thought",
+                        content="Vulnerability detected. Waiting for auditor decision...",
+                    ))
+
+                    self.decision_event.clear()
+                    await self.decision_event.wait()
+                    decision = self.decision_value
+
+                    audit = await session.get(Audit, self.audit_id)
+
+                    if decision == "stop":
+                        break
+                    elif decision == "deeper":
+                        audit.status = AuditStatus.exploiting
+                        session.add(audit)
+                        await session.commit()
+                        self._history.append(f"USER: Investigate this vulnerability deeper: {parsed['title']}")
+                    elif decision == "skip":
+                        audit.status = AuditStatus.scanning
+                        session.add(audit)
+                        await session.commit()
+                        self._history.append("USER: Skip this finding and continue scanning.")
+                    else:
+                        audit.status = AuditStatus.scanning
+                        session.add(audit)
+                        await session.commit()
+                        self._history.append("USER: Continue scanning for more vulnerabilities.")
+
+                elif parsed["type"] == "done":
+                    await self._emit(AgentStep(step_type="thought", content=parsed["summary"]))
+                    await self._log_step(session, "thought", parsed["summary"])
+                    break
+
                 else:
-                    self.audit.status = AuditStatus.scanning
-                    self.session.add(self.audit)
-                    await self.session.commit()
-                    self.history.append("USER: Continue scanning for more vulnerabilities.")
+                    await self._emit(AgentStep(step_type="thought", content=response[:500]))
+                    await self._log_step(session, "thought", response[:500])
+                    self._history.append("USER: Please follow the required response format. Continue the audit.")
 
-            elif parsed["type"] == "done":
-                done_step = AgentStep(step_type="thought", content=parsed["summary"])
-                yield done_step
-                await self._log_step(done_step)
-                break
+        finally:
+            audit = await session.get(Audit, self.audit_id)
+            audit.status = AuditStatus.idle
+            audit.finished_at = datetime.now(timezone.utc)
+            session.add(audit)
+            await session.commit()
+            self.is_running = False
 
-            else:
-                fallback_step = AgentStep(step_type="thought", content=response[:500])
-                yield fallback_step
-                await self._log_step(fallback_step)
-                self.history.append("USER: Please follow the required response format. Continue the audit.")
+            await self._emit(AgentStep(step_type="done", content="Audit completed"))
 
-        self.audit.status = AuditStatus.idle
-        self.audit.finished_at = datetime.now(timezone.utc)
-        self.session.add(self.audit)
-        await self.session.commit()
+    async def cancel(self) -> None:
+        self._cancel_event.set()
+
+    async def send_decision(self, decision: str) -> None:
+        self.decision_value = decision
+        self.decision_event.set()
+
+    async def _load_history(self, session: AsyncSession) -> None:
+        result = await session.exec(
+            select(AuditLog)
+            .where(AuditLog.audit_id == self.audit_id)
+            .order_by(AuditLog.timestamp.asc())
+        )
+        logs = result.all()
+        if not logs:
+            return
+        for log in logs:
+            if log.step_type == StepType.thought:
+                self._history.append(f"ASSISTANT: THOUGHT: {log.content}")
+            elif log.step_type == StepType.action:
+                self._history.append(f"ASSISTANT: ACTION: {log.tool_used}\nPARAMS: {{}}")
+            elif log.step_type == StepType.observation:
+                self._history.append(f"OBSERVATION: {log.content}")
+
+    async def _emit(self, step: AgentStep) -> None:
+        await self.step_queue.put(step)
 
     def _parse_response(self, response: str) -> dict:
         response = response.strip()
@@ -220,27 +287,27 @@ class ReactAgent:
             )
         return await tool.execute(**params)
 
-    async def _save_vulnerability(self, parsed: dict) -> None:
+    async def _save_vulnerability(self, session: AsyncSession, parsed: dict) -> None:
         severity_map = {"critical": Severity.critical, "high": Severity.high, "medium": Severity.medium, "low": Severity.low, "info": Severity.info}
         vuln = Vulnerability(
-            audit_id=self.audit.id,
+            audit_id=self.audit_id,
             title=parsed["title"],
             cvss_score=parsed["cvss"],
             severity=severity_map.get(parsed["severity"], Severity.info),
             description=parsed["description"],
             remediation=parsed.get("remediation"),
         )
-        self.session.add(vuln)
-        await self.session.commit()
+        session.add(vuln)
+        await session.commit()
 
-    async def _log_step(self, step: AgentStep) -> None:
+    async def _log_step(self, session: AsyncSession, step_type: str, content: str, tool_used: str | None = None, command_executed: str | None = None) -> None:
         step_type_map = {"thought": StepType.thought, "action": StepType.action, "observation": StepType.observation}
         log = AuditLog(
-            audit_id=self.audit.id,
-            step_type=step_type_map.get(step.step_type, StepType.thought),
-            content=step.content,
-            tool_used=step.tool_used,
-            command_executed=step.command_executed,
+            audit_id=self.audit_id,
+            step_type=step_type_map.get(step_type, StepType.thought),
+            content=content,
+            tool_used=tool_used,
+            command_executed=command_executed,
         )
-        self.session.add(log)
-        await self.session.commit()
+        session.add(log)
+        await session.commit()
