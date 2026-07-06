@@ -74,23 +74,31 @@ export default function AuditDetailPage() {
   }, [steps]);
 
   const fetchAudit = async () => {
-    const res = await fetch(`http://localhost:8000/api/v1/audits/${auditId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setAudit(data);
-      setStatus(data.status);
+    try {
+      const res = await fetch(`http://localhost:8000/api/v1/audits/${auditId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAudit(data);
+        setStatus(data.status);
+      }
+    } catch (e) {
+      console.warn("audit fetch failed", e);
     }
   };
 
   const fetchFindings = async () => {
-    const res = await fetch(`http://localhost:8000/api/v1/audits/${auditId}/findings`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setVulnerabilities(data.vulnerabilities || []);
+    try {
+      const res = await fetch(`http://localhost:8000/api/v1/audits/${auditId}/findings`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVulnerabilities(data.vulnerabilities || []);
+      }
+    } catch (e) {
+      console.warn("findings fetch failed", e);
     }
   };
 
@@ -121,13 +129,14 @@ export default function AuditDetailPage() {
     ws.onclose = () => {
       setConnected(false);
       setRunning(false);
-      fetchFindings();
-      fetchAudit();
+      fetchFindings().catch(() => {});
+      fetchAudit().catch(() => {});
     };
 
-    ws.onerror = () => {
+    ws.onerror = (e) => {
       setConnected(false);
       setRunning(false);
+      console.warn("websocket error", e);
     };
   };
 
