@@ -35,6 +35,8 @@ const SEVERITY_COLORS: Record<string, string> = {
   info: "bg-neutral-500/20 text-neutral-400 border-neutral-500/30",
 };
 
+const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
 const STEP_ICONS: Record<string, { icon: string; color: string }> = {
   thought: { icon: "🧠", color: "text-purple-400" },
   action: { icon: "⚡", color: "text-[#84cc16]" },
@@ -103,7 +105,12 @@ export default function AuditDetailPage() {
       });
       if (res.ok) {
         const data = await res.json();
-        setVulnerabilities(data.vulnerabilities || []);
+        const sortedVulns = [...(data.vulnerabilities || [])].sort((a, b) => {
+          const rankDiff = (SEVERITY_RANK[a.severity] ?? 99) - (SEVERITY_RANK[b.severity] ?? 99);
+          if (rankDiff !== 0) return rankDiff;
+          return (b.cvss_score ?? -1) - (a.cvss_score ?? -1);
+        });
+        setVulnerabilities(sortedVulns);
         setOpenPorts(data.open_ports || []);
         setAttacks(data.suggested_attacks || []);
         if (!running && Array.isArray(data.logs)) {
