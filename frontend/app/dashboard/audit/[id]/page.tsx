@@ -195,12 +195,12 @@ export default function AuditDetailPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] relative">
+    <div className="h-screen flex flex-col overflow-hidden bg-[#0a0a0a] relative">
       {/* Background effects */}
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#84cc16]/3 rounded-full blur-[150px]" />
 
       {/* Navbar */}
-      <nav className="relative z-10 border-b border-[#262626] bg-[#0a0a0a]/80 backdrop-blur-xl">
+      <nav className="relative z-10 flex-shrink-0 border-b border-[#262626] bg-[#0a0a0a]/80 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -232,11 +232,11 @@ export default function AuditDetailPage() {
         </div>
       </nav>
 
-      <main className="relative z-10 max-w-7xl mx-auto px-6 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <main className="relative z-10 max-w-7xl w-full mx-auto px-6 py-6 flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
           {/* Terminal - Agent Stream */}
-          <div className="lg:col-span-2">
-            <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden">
+          <div className="lg:col-span-2 h-full min-h-0 flex flex-col">
+            <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden h-full min-h-0 flex flex-col">
               {/* Terminal header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-[#262626] bg-[#0a0a0a]/50">
                 <div className="flex items-center gap-2">
@@ -274,7 +274,7 @@ export default function AuditDetailPage() {
               {/* Terminal body */}
               <div
                 ref={terminalRef}
-                className="p-4 h-[500px] overflow-y-auto font-mono text-sm space-y-3"
+                className="p-4 flex-1 min-h-0 overflow-y-auto font-mono text-sm space-y-3"
               >
                 {steps.length === 0 && !running && (
                   <div className="text-center text-neutral-600 py-20">
@@ -379,7 +379,7 @@ export default function AuditDetailPage() {
           </div>
 
           {/* Sidebar - Findings */}
-          <div className="space-y-4">
+          <div className="h-full min-h-0 overflow-y-auto pr-2 space-y-4">
             {/* Status card */}
             <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5">
               <h3 className="text-sm font-semibold text-white mb-3">Estado</h3>
