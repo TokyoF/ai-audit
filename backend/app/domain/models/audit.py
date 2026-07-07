@@ -12,6 +12,8 @@ class AuditStatus(str, Enum):
     exploiting = "exploiting"
     reporting = "reporting"
     idle = "idle"
+    pending = "pending"
+    completed = "completed"
 
 
 class Audit(SQLModel, table=True):
@@ -19,7 +21,7 @@ class Audit(SQLModel, table=True):
 
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     target_id: uuid.UUID = Field(foreign_key="targets.id")
-    status: AuditStatus = Field(default=AuditStatus.idle)
+    status: AuditStatus = Field(default=AuditStatus.pending)
     started_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     finished_at: datetime | None = Field(default=None, sa_type=DateTime(timezone=True))
     summary: str | None = Field(default=None)
