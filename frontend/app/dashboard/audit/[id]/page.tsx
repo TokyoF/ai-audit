@@ -235,79 +235,83 @@ export default function AuditDetailPage() {
       <main className="relative z-10 w-full px-6 py-6 flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr_1fr] gap-4 flex-1 min-h-0">
           {/* Column 1 - Estado / Reconocimiento / Ataques */}
-          <div className="h-full min-h-0 overflow-y-auto no-scrollbar space-y-4">
-            {/* Status card */}
-            <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-3">Estado</h3>
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">Status</span>
-                  <span className="text-white capitalize">{status.replace("_", " ")}</span>
-                </div>
-                {audit?.started_at && (
-                  <div className="flex justify-between">
-                    <span className="text-neutral-500">Inicio</span>
-                    <span className="text-white">
-                      {new Date(audit.started_at).toLocaleTimeString("es-ES")}
-                    </span>
+          <div className="h-full min-h-0 flex flex-col">
+            <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden h-full min-h-0 flex flex-col p-5">
+              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+                {/* Status */}
+                <div>
+                  <h3 className="text-sm font-semibold text-white mb-3">Estado</h3>
+                  <div className="space-y-2 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500">Status</span>
+                      <span className="text-white capitalize">{status.replace("_", " ")}</span>
+                    </div>
+                    {audit?.started_at && (
+                      <div className="flex justify-between">
+                        <span className="text-neutral-500">Inicio</span>
+                        <span className="text-white">
+                          {new Date(audit.started_at).toLocaleTimeString("es-ES")}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500">Pasos</span>
+                      <span className="text-white">{steps.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-neutral-500">Hallazgos</span>
+                      <span className="text-[#84cc16] font-semibold">{vulnerabilities.length}</span>
+                    </div>
                   </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">Pasos</span>
-                  <span className="text-white">{steps.length}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-neutral-500">Hallazgos</span>
-                  <span className="text-[#84cc16] font-semibold">{vulnerabilities.length}</span>
+
+                {/* Open Ports */}
+                <div className="border-t border-neutral-800 pt-4 mt-4">
+                  <h3 className="text-sm font-semibold text-white mb-3">Reconocimiento — Puertos abiertos</h3>
+                  {openPorts.length === 0 ? (
+                    <p className="text-xs text-neutral-600">Sin puertos detectados aún</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {openPorts.map((p, i) => (
+                        <div
+                          key={i}
+                          className="flex items-center justify-between gap-2 p-2 bg-[#0a0a0a] border border-[#262626] rounded-lg text-xs"
+                        >
+                          <span className="text-white font-mono">
+                            {p.port}/{p.protocol}
+                          </span>
+                          <span className="text-neutral-400 truncate">
+                            {p.service}
+                            {p.version ? ` ${p.version}` : ""}
+                          </span>
+                          <span className="text-[10px] text-[#84cc16] uppercase whitespace-nowrap">{p.state}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Suggested Attacks */}
+                <div className="border-t border-neutral-800 pt-4 mt-4">
+                  <h3 className="text-sm font-semibold text-white mb-3">Ataques posibles</h3>
+                  {attacks.length === 0 ? (
+                    <p className="text-xs text-neutral-600">Sin sugerencias aún</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {attacks.map((a, i) => (
+                        <div key={i} className="p-3 bg-[#0a0a0a] border border-[#262626] rounded-lg">
+                          <span className="text-xs font-medium text-white">
+                            {a.port} · {a.service}
+                          </span>
+                          <p className="text-[11px] text-neutral-400 mt-1">
+                            → <span className="text-[#84cc16] font-semibold">{a.tool}</span>: {a.reason}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-
-            {/* Open Ports */}
-            <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-3">Reconocimiento — Puertos abiertos</h3>
-              {openPorts.length === 0 ? (
-                <p className="text-xs text-neutral-600">Sin puertos detectados aún</p>
-              ) : (
-                <div className="space-y-2">
-                  {openPorts.map((p, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center justify-between gap-2 p-2 bg-[#0a0a0a] border border-[#262626] rounded-lg text-xs"
-                    >
-                      <span className="text-white font-mono">
-                        {p.port}/{p.protocol}
-                      </span>
-                      <span className="text-neutral-400 truncate">
-                        {p.service}
-                        {p.version ? ` ${p.version}` : ""}
-                      </span>
-                      <span className="text-[10px] text-[#84cc16] uppercase whitespace-nowrap">{p.state}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Suggested Attacks */}
-            <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-3">Ataques posibles</h3>
-              {attacks.length === 0 ? (
-                <p className="text-xs text-neutral-600">Sin sugerencias aún</p>
-              ) : (
-                <div className="space-y-2">
-                  {attacks.map((a, i) => (
-                    <div key={i} className="p-3 bg-[#0a0a0a] border border-[#262626] rounded-lg">
-                      <span className="text-xs font-medium text-white">
-                        {a.port} · {a.service}
-                      </span>
-                      <p className="text-[11px] text-neutral-400 mt-1">
-                        → <span className="text-[#84cc16] font-semibold">{a.tool}</span>: {a.reason}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
 
@@ -456,32 +460,34 @@ export default function AuditDetailPage() {
           </div>
 
           {/* Column 3 - Vulnerabilidades */}
-          <div className="h-full min-h-0 overflow-y-auto no-scrollbar">
-            <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-3">Vulnerabilidades</h3>
-              {vulnerabilities.length === 0 ? (
-                <p className="text-xs text-neutral-600">No se han encontrado vulnerabilidades aún</p>
-              ) : (
-                <div className="space-y-2">
-                  {vulnerabilities.map((vuln) => (
-                    <div
-                      key={vuln.id}
-                      className="p-3 bg-[#0a0a0a] border border-[#262626] rounded-lg"
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <span className="text-xs font-medium text-white">{vuln.title}</span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${SEVERITY_COLORS[vuln.severity] || SEVERITY_COLORS.info}`}>
-                          {vuln.severity}
-                        </span>
+          <div className="h-full min-h-0 flex flex-col">
+            <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden h-full min-h-0 flex flex-col p-5">
+              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+                <h3 className="text-sm font-semibold text-white mb-3">Vulnerabilidades</h3>
+                {vulnerabilities.length === 0 ? (
+                  <p className="text-xs text-neutral-600">No se han encontrado vulnerabilidades aún</p>
+                ) : (
+                  <div className="space-y-2">
+                    {vulnerabilities.map((vuln) => (
+                      <div
+                        key={vuln.id}
+                        className="p-3 bg-[#0a0a0a] border border-[#262626] rounded-lg"
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <span className="text-xs font-medium text-white">{vuln.title}</span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${SEVERITY_COLORS[vuln.severity] || SEVERITY_COLORS.info}`}>
+                            {vuln.severity}
+                          </span>
+                        </div>
+                        {vuln.cvss_score !== null && (
+                          <span className="text-[10px] text-neutral-500">CVSS: {vuln.cvss_score}</span>
+                        )}
+                        <p className="text-[11px] text-neutral-400 mt-1 line-clamp-2">{vuln.description}</p>
                       </div>
-                      {vuln.cvss_score !== null && (
-                        <span className="text-[10px] text-neutral-500">CVSS: {vuln.cvss_score}</span>
-                      )}
-                      <p className="text-[11px] text-neutral-400 mt-1 line-clamp-2">{vuln.description}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
