@@ -10,6 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.adapters.ai.ollama_client import ollama_client
 from app.adapters.tools import AVAILABLE_TOOLS
 from app.adapters.tools.base import ToolResult
+from app.domain.agent.finding_extractor import extract_findings
 from app.domain.models.audit import Audit, AuditStatus
 from app.domain.models.audit_log import AuditLog, StepType
 from app.domain.models.vulnerability import Severity, Vulnerability
@@ -62,6 +63,10 @@ Diversification rules:
 - Escalate nmap scans progressively: start with basic, then full (all ports), then vuln (NSE vuln scripts), and udp when relevant. Use each scan_type at most once unless new information justifies it.
 - After enumeration, pivot to service-specific tools: hydra for exposed auth services (ssh/ftp/http), sqlmap for web apps with parameters.
 - Only respond DONE when you have tried multiple distinct techniques and no further useful action remains. Do not declare DONE just because one scan finished.
+
+REPORTING:
+- Whenever a tool reveals a concrete weakness, you MUST emit a FINDING block (with SEVERITY and CVSS) BEFORE moving on to the next action. Examples: valid credentials found by hydra (critical), SQL injection confirmed by sqlmap (critical), outdated/vulnerable service versions from nmap (medium/high), issues reported by nikto/nuclei.
+- Do NOT respond DONE until every discovered weakness has a corresponding FINDING.
 """
 
 
@@ -84,6 +89,7 @@ class ReactAgent:
     _history: list[str] = field(default_factory=list)
     _failed_tools: set = field(default_factory=set)
     _executed_actions: set = field(default_factory=set)
+    _saved_finding_titles: set = field(default_factory=set)
     _cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     max_steps: int = 20
 
@@ -97,8 +103,18 @@ class ReactAgent:
 
         self._history.clear()
         self._executed_actions.clear()
+        self._saved_finding_titles.clear()
 
         await self._load_history(session)
+
+        try:
+            existing_vulns = await session.exec(
+                select(Vulnerability).where(Vulnerability.audit_id == self.audit_id)
+            )
+            for vuln in existing_vulns.all():
+                self._saved_finding_titles.add(vuln.title)
+        except Exception:
+            pass
 
         if self._history:
             self._history.append("USER: Resume this audit. Review what was already tried above and continue with a NEW technique or tool that has NOT been used yet. Do NOT respond DONE unless you have genuinely exhausted distinct approaches.")
@@ -157,6 +173,9 @@ class ReactAgent:
 
                     await self._emit(AgentStep(step_type="observation", content=observation))
                     await self._log_step(session, "observation", observation)
+
+                    if not is_env_error:
+                        await self._auto_extract_findings(session, tool_result.tool_name, tool_result.command, tool_result.output)
 
                     if is_env_error:
                         self._history.append(f"OBSERVATION: {observation}")
@@ -334,6 +353,44 @@ class ReactAgent:
         )
         session.add(vuln)
         await session.commit()
+
+    async def _auto_extract_findings(self, session: AsyncSession, tool_name: str, command: str, output: str) -> None:
+        try:
+            findings = extract_findings(tool_name, command, output)
+        except Exception:
+            return
+
+        severity_map = {"critical": Severity.critical, "high": Severity.high, "medium": Severity.medium, "low": Severity.low, "info": Severity.info}
+        added = False
+        try:
+            for finding in findings:
+                title = finding.get("title")
+                if not title or title in self._saved_finding_titles:
+                    continue
+                self._saved_finding_titles.add(title)
+
+                severity = str(finding.get("severity", "info")).lower()
+                vuln = Vulnerability(
+                    audit_id=self.audit_id,
+                    title=title,
+                    cvss_score=finding.get("cvss", 0.0),
+                    severity=severity_map.get(severity, Severity.info),
+                    description=finding.get("description") or title,
+                    remediation=finding.get("remediation"),
+                    cve_id=finding.get("cve_id"),
+                )
+                session.add(vuln)
+                added = True
+
+                await self._emit(AgentStep(
+                    step_type="observation",
+                    content=f"[{severity.upper()}] {title}",
+                ))
+
+            if added:
+                await session.commit()
+        except Exception:
+            pass
 
     async def _log_step(self, session: AsyncSession, step_type: str, content: str, tool_used: str | None = None, command_executed: str | None = None) -> None:
         step_type_map = {"thought": StepType.thought, "action": StepType.action, "observation": StepType.observation}
