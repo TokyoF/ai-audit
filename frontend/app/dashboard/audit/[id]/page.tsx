@@ -59,6 +59,7 @@ export default function AuditDetailPage() {
   const [audit, setAudit] = useState<AuditData | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pendingContextRef = useRef<string | null>(null);
+  const findingsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [guidance, setGuidance] = useState("");
   const terminalRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +70,9 @@ export default function AuditDetailPage() {
     }
     fetchAudit();
     fetchFindings();
+    return () => {
+      if (findingsRefreshRef.current) clearTimeout(findingsRefreshRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -117,6 +121,13 @@ export default function AuditDetailPage() {
     }
   };
 
+  const scheduleFindingsRefresh = () => {
+    if (findingsRefreshRef.current) clearTimeout(findingsRefreshRef.current);
+    findingsRefreshRef.current = setTimeout(() => {
+      fetchFindings().catch(() => {});
+    }, 1500);
+  };
+
   const startAgent = () => {
     if (!token) return;
     setRunning(true);
@@ -144,11 +155,13 @@ export default function AuditDetailPage() {
         fetchFindings();
         fetchAudit();
       }
+      scheduleFindingsRefresh();
     };
 
     ws.onclose = () => {
       setConnected(false);
       setRunning(false);
+      if (findingsRefreshRef.current) clearTimeout(findingsRefreshRef.current);
       fetchFindings().catch(() => {});
       fetchAudit().catch(() => {});
     };
