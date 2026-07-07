@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from app.domain.models.audit import AuditStatus
 from app.domain.models.audit_log import StepType
@@ -25,6 +25,8 @@ class AuditResponse(BaseModel):
 
 
 class AuditLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: uuid.UUID
     step_type: StepType
     content: str
@@ -34,6 +36,8 @@ class AuditLogResponse(BaseModel):
 
 
 class VulnerabilityResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: uuid.UUID
     audit_id: uuid.UUID
     title: str
@@ -47,6 +51,8 @@ class VulnerabilityResponse(BaseModel):
 
 
 class OpenPortResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     port: int
     protocol: str
     state: str
@@ -55,6 +61,8 @@ class OpenPortResponse(BaseModel):
 
 
 class SuggestedAttackResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     port: int
     service: str
     tool: str
