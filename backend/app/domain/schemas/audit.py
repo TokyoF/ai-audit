@@ -24,6 +24,25 @@ class AuditResponse(BaseModel):
     created_at: datetime
 
 
+class UpdateStatusRequest(BaseModel):
+    status: AuditStatus
+
+
+class AuditListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    target_id: uuid.UUID
+    status: AuditStatus
+    started_at: datetime | None
+    finished_at: datetime | None
+    summary: str | None
+    created_by: uuid.UUID
+    created_at: datetime
+    host: str | None = None
+    vuln_count: int = 0
+
+
 class AuditLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import delete, func
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -14,10 +15,12 @@ from app.domain.models.user import User
 from app.domain.models.vulnerability import Vulnerability
 from app.domain.agent.recon_parser import parse_open_ports, suggest_attacks
 from app.domain.schemas.audit import (
+    AuditListItem,
     AuditLogResponse,
     AuditResponse,
     CreateAuditRequest,
     FindingsResponse,
+    UpdateStatusRequest,
     VulnerabilityResponse,
 )
 
@@ -41,7 +44,7 @@ async def create_audit(
 
     audit = Audit(
         target_id=target.id,
-        status=AuditStatus.scanning,
+        status=AuditStatus.pending,
         started_at=datetime.now(timezone.utc),
         created_by=current_user.id,
     )
@@ -51,7 +54,7 @@ async def create_audit(
     return audit
 
 
-@router.get("", response_model=list[AuditResponse])
+@router.get("", response_model=list[AuditListItem])
 async def list_audits(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
@@ -59,7 +62,38 @@ async def list_audits(
     result = await session.exec(
         select(Audit).where(Audit.created_by == current_user.id).order_by(Audit.created_at.desc())
     )
-    return result.all()
+    audits = result.all()
+    if not audits:
+        return []
+
+    target_ids = {audit.target_id for audit in audits}
+    audit_ids = [audit.id for audit in audits]
+
+    targets_result = await session.exec(select(Target).where(Target.id.in_(target_ids)))
+    host_by_target_id = {target.id: target.host for target in targets_result.all()}
+
+    counts_result = await session.exec(
+        select(Vulnerability.audit_id, func.count())
+        .where(Vulnerability.audit_id.in_(audit_ids))
+        .group_by(Vulnerability.audit_id)
+    )
+    vuln_count_by_audit_id = {audit_id: count for audit_id, count in counts_result.all()}
+
+    return [
+        AuditListItem(
+            id=audit.id,
+            target_id=audit.target_id,
+            status=audit.status,
+            started_at=audit.started_at,
+            finished_at=audit.finished_at,
+            summary=audit.summary,
+            created_by=audit.created_by,
+            created_at=audit.created_at,
+            host=host_by_target_id.get(audit.target_id),
+            vuln_count=vuln_count_by_audit_id.get(audit.id, 0),
+        )
+        for audit in audits
+    ]
 
 
 @router.get("/{audit_id}", response_model=AuditResponse)
@@ -166,6 +200,45 @@ async def get_findings(
         open_ports=open_ports,
         suggested_attacks=suggested_attacks,
     )
+
+
+@router.delete("/{audit_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_audit(
+    audit_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    audit = await _get_user_audit(audit_id, current_user.id, session)
+
+    await session.execute(delete(Vulnerability).where(Vulnerability.audit_id == audit.id))
+    await session.execute(delete(AuditLog).where(AuditLog.audit_id == audit.id))
+    await session.execute(delete(Audit).where(Audit.id == audit.id))
+    await session.execute(delete(Target).where(Target.id == audit.target_id))
+    await session.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+_USER_SETTABLE_STATUSES = {AuditStatus.pending, AuditStatus.scanning, AuditStatus.completed}
+
+
+@router.patch("/{audit_id}/status", response_model=AuditResponse)
+async def update_audit_status(
+    audit_id: uuid.UUID,
+    body: UpdateStatusRequest,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    if body.status not in _USER_SETTABLE_STATUSES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status")
+
+    audit = await _get_user_audit(audit_id, current_user.id, session)
+    audit.status = body.status
+    if body.status == AuditStatus.completed:
+        audit.finished_at = datetime.now(timezone.utc)
+    session.add(audit)
+    await session.commit()
+    await session.refresh(audit)
+    return audit
 
 
 async def _get_user_audit(audit_id: uuid.UUID, user_id: uuid.UUID, session: AsyncSession) -> Audit:
