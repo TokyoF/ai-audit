@@ -31,7 +31,7 @@ async def create_audit(
     current_user: User = Depends(get_current_user),
 ):
     target = Target(
-        host=body.host,
+        host=body.host.strip(),
         description=body.description,
         is_authorized=True,
         created_by=current_user.id,

@@ -23,10 +23,14 @@ class BaseTool(ABC):
         ...
 
     async def execute(self, **kwargs) -> ToolResult:
-        normalized_kwargs = {
-            key: ("host.docker.internal" if value in ("localhost", "127.0.0.1") else value)
-            for key, value in kwargs.items()
-        }
+        def _norm(value):
+            if isinstance(value, str):
+                value = value.strip()
+                if value in ("localhost", "127.0.0.1"):
+                    return "host.docker.internal"
+            return value
+
+        normalized_kwargs = {key: _norm(value) for key, value in kwargs.items()}
         cmd = self.build_command(**normalized_kwargs)
         command_str = " ".join(cmd)
         docker_cmd = ["docker", "exec", TOOLS_CONTAINER] + cmd

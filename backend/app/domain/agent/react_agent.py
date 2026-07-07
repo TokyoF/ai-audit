@@ -288,9 +288,20 @@ class ReactAgent:
     def _parse_response(self, response: str) -> dict:
         response = response.strip()
 
+        if "DONE:" in response:
+            return {
+                "type": "done",
+                "summary": self._extract(response, "DONE:") or self._extract(response, "THOUGHT:") or "Audit completed",
+            }
+
         if "ACTION:" in response:
             thought = self._extract(response, "THOUGHT:")
             tool = self._extract(response, "ACTION:").strip().lower()
+            if tool.startswith(("done", "finish", "complete", "stop")):
+                return {
+                    "type": "done",
+                    "summary": thought or "Audit completed",
+                }
             params_str = self._extract(response, "PARAMS:")
             try:
                 params = json.loads(params_str)
@@ -311,11 +322,8 @@ class ReactAgent:
                 "remediation": self._extract(response, "REMEDIATION:"),
             }
 
-        if "DONE:" in response:
-            return {
-                "type": "done",
-                "summary": self._extract(response, "DONE:") or self._extract(response, "THOUGHT:"),
-            }
+        if response.strip().lower().startswith("done"):
+            return {"type": "done", "summary": self._extract(response, "THOUGHT:") or "Audit completed"}
 
         return {"type": "unknown"}
 
@@ -331,6 +339,8 @@ class ReactAgent:
             return 0.0
 
     async def _execute_tool(self, tool_name: str, params: dict) -> ToolResult:
+        if tool_name.startswith(("done", "finish", "complete", "stop")):
+            return ToolResult(tool_name=tool_name, command=tool_name, output="(audit marked done)", success=True)
         tool = AVAILABLE_TOOLS.get(tool_name)
         if not tool:
             return ToolResult(
