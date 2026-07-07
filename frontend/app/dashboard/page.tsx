@@ -10,16 +10,27 @@ interface Audit {
   started_at: string | null;
   finished_at: string | null;
   summary: string | null;
+  created_by?: string;
   created_at: string;
+  host?: string | null;
+  vuln_count?: number;
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  pending: { label: "Pendiente", color: "bg-amber-500/20 text-amber-400 border-amber-500/30" },
   scanning: { label: "Escaneando", color: "bg-[#84cc16]/20 text-[#84cc16] border-[#84cc16]/30" },
-  awaiting_decision: { label: "Esperando decisión", color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" },
+  awaiting_decision: { label: "Esperando", color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30" },
   exploiting: { label: "Explotando", color: "bg-orange-500/20 text-orange-400 border-orange-500/30" },
-  reporting: { label: "Generando reporte", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+  reporting: { label: "Reportando", color: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+  completed: { label: "Finalizada", color: "bg-green-500/20 text-green-400 border-green-500/30" },
   idle: { label: "Finalizada", color: "bg-neutral-500/20 text-neutral-400 border-neutral-500/30" },
 };
+
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "pending", label: "Pendiente" },
+  { value: "scanning", label: "Escaneando" },
+  { value: "completed", label: "Finalizada" },
+];
 
 export default function DashboardPage() {
   const [audits, setAudits] = useState<Audit[]>([]);
@@ -81,6 +92,42 @@ export default function DashboardPage() {
       console.error("Error creating audit");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const deleteAudit = async (id: string) => {
+    if (!window.confirm("¿Eliminar esta auditoría y todos sus datos? Esta acción no se puede deshacer.")) {
+      return;
+    }
+    try {
+      const res = await fetch(`http://localhost:8000/api/v1/audits/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok || res.status === 204) {
+        setAudits((prev) => prev.filter((a) => a.id !== id));
+      }
+    } catch {
+      console.error("Error deleting audit");
+    }
+  };
+
+  const setAuditStatus = async (id: string, status: string) => {
+    try {
+      const res = await fetch(`http://localhost:8000/api/v1/audits/${id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setAudits((prev) => prev.map((a) => (a.id === id ? { ...a, ...updated } : a)));
+      }
+    } catch {
+      console.error("Error updating audit status");
     }
   };
 
@@ -208,15 +255,45 @@ export default function DashboardPage() {
                         </svg>
                       </div>
                       <div>
-                        <p className="text-white font-medium">Auditoría</p>
+                        <p className="text-white font-medium">{audit.host || "Auditoría"}</p>
                         <p className="text-xs text-neutral-500 font-mono">{audit.id.slice(0, 8)}...</p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs px-2.5 py-1 rounded-full border bg-[#1a1a1a] text-neutral-400 border-[#262626]">
+                        {audit.vuln_count ?? 0} hallazgos
+                      </span>
                       <span className={`text-xs px-3 py-1 rounded-full border ${statusInfo.color}`}>
                         {statusInfo.label}
                       </span>
+                      <select
+                        value={audit.status}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          setAuditStatus(audit.id, e.target.value);
+                        }}
+                        className="text-xs px-2 py-1 bg-[#1a1a1a] border border-[#262626] rounded-lg text-neutral-300 focus:outline-none focus:ring-1 focus:ring-[#84cc16]/50"
+                      >
+                        {STATUS_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
                       <span className="text-xs text-neutral-600">{formatDate(audit.created_at)}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteAudit(audit.id);
+                        }}
+                        className="p-1.5 rounded-lg text-red-400/70 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                        title="Eliminar auditoría"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                        </svg>
+                      </button>
                       <svg className="w-4 h-4 text-neutral-600 group-hover:text-[#84cc16] transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                       </svg>
