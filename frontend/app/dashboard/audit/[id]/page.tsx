@@ -235,8 +235,8 @@ export default function AuditDetailPage() {
       <main className="relative z-10 max-w-7xl w-full mx-auto px-6 py-6 flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
           {/* Terminal - Agent Stream */}
-          <div className="lg:col-span-2 h-full min-h-0 flex flex-col">
-            <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden h-full min-h-0 flex flex-col">
+          <div className="lg:col-span-2 h-full min-h-0 flex flex-col gap-4">
+            <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden flex-[3] min-h-0 flex flex-col">
               {/* Terminal header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-[#262626] bg-[#0a0a0a]/50">
                 <div className="flex items-center gap-2">
@@ -274,7 +274,7 @@ export default function AuditDetailPage() {
               {/* Terminal body */}
               <div
                 ref={terminalRef}
-                className="p-4 flex-1 min-h-0 overflow-y-auto font-mono text-sm space-y-3"
+                className="p-4 flex-1 min-h-0 overflow-y-auto no-scrollbar font-mono text-sm space-y-3"
               >
                 {steps.length === 0 && !running && (
                   <div className="text-center text-neutral-600 py-20">
@@ -376,10 +376,38 @@ export default function AuditDetailPage() {
                 </div>
               </div>
             </div>
+
+            {/* Vulnerabilities */}
+            <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5 flex-[2] min-h-0 flex flex-col">
+              <h3 className="text-sm font-semibold text-white mb-3 flex-shrink-0">Vulnerabilidades</h3>
+              {vulnerabilities.length === 0 ? (
+                <p className="text-xs text-neutral-600">No se han encontrado vulnerabilidades aún</p>
+              ) : (
+                <div className="space-y-2 flex-1 min-h-0 overflow-y-auto no-scrollbar">
+                  {vulnerabilities.map((vuln) => (
+                    <div
+                      key={vuln.id}
+                      className="p-3 bg-[#0a0a0a] border border-[#262626] rounded-lg"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-1">
+                        <span className="text-xs font-medium text-white">{vuln.title}</span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${SEVERITY_COLORS[vuln.severity] || SEVERITY_COLORS.info}`}>
+                          {vuln.severity}
+                        </span>
+                      </div>
+                      {vuln.cvss_score !== null && (
+                        <span className="text-[10px] text-neutral-500">CVSS: {vuln.cvss_score}</span>
+                      )}
+                      <p className="text-[11px] text-neutral-400 mt-1 line-clamp-2">{vuln.description}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Sidebar - Findings */}
-          <div className="h-full min-h-0 overflow-y-auto pr-2 space-y-4">
+          <div className="h-full min-h-0 overflow-y-auto no-scrollbar pr-2 space-y-4">
             {/* Status card */}
             <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5">
               <h3 className="text-sm font-semibold text-white mb-3">Estado</h3>
@@ -448,34 +476,6 @@ export default function AuditDetailPage() {
                       <p className="text-[11px] text-neutral-400 mt-1">
                         → <span className="text-[#84cc16] font-semibold">{a.tool}</span>: {a.reason}
                       </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Vulnerabilities */}
-            <div className="bg-[#111111]/80 border border-[#262626] rounded-xl p-5">
-              <h3 className="text-sm font-semibold text-white mb-3">Vulnerabilidades</h3>
-              {vulnerabilities.length === 0 ? (
-                <p className="text-xs text-neutral-600">No se han encontrado vulnerabilidades aún</p>
-              ) : (
-                <div className="space-y-2">
-                  {vulnerabilities.map((vuln) => (
-                    <div
-                      key={vuln.id}
-                      className="p-3 bg-[#0a0a0a] border border-[#262626] rounded-lg"
-                    >
-                      <div className="flex items-start justify-between gap-2 mb-1">
-                        <span className="text-xs font-medium text-white">{vuln.title}</span>
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${SEVERITY_COLORS[vuln.severity] || SEVERITY_COLORS.info}`}>
-                          {vuln.severity}
-                        </span>
-                      </div>
-                      {vuln.cvss_score !== null && (
-                        <span className="text-[10px] text-neutral-500">CVSS: {vuln.cvss_score}</span>
-                      )}
-                      <p className="text-[11px] text-neutral-400 mt-1 line-clamp-2">{vuln.description}</p>
                     </div>
                   ))}
                 </div>
