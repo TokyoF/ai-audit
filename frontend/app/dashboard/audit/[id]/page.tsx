@@ -39,6 +39,15 @@ const SEVERITY_COLORS: Record<string, string> = {
 
 const SEVERITY_RANK: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
+function formatDuration(startIso: string, endIso: string): string {
+  const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
+  if (!isFinite(ms) || ms < 0) return "—";
+  const totalSec = Math.round(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
 const STEP_ICONS: Record<string, { icon: string; color: string }> = {
   thought: { icon: "🧠", color: "text-purple-400" },
   action: { icon: "⚡", color: "text-[#84cc16]" },
@@ -287,7 +296,7 @@ export default function AuditDetailPage() {
       <main className="relative z-10 w-full px-6 py-6 flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr_1fr] gap-4 flex-1 min-h-0">
           {/* Column 1 - Estado / Reconocimiento / Ataques */}
-          <div className="h-full min-h-0 flex flex-col">
+          <div className="h-full min-h-0 flex flex-col min-w-0">
             <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden h-full min-h-0 flex flex-col p-5">
               <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
                 {/* Status */}
@@ -304,6 +313,20 @@ export default function AuditDetailPage() {
                         <span className="text-white">
                           {new Date(audit.started_at).toLocaleTimeString("es-ES")}
                         </span>
+                      </div>
+                    )}
+                    {audit?.finished_at && (
+                      <div className="flex justify-between">
+                        <span className="text-neutral-500">Fin</span>
+                        <span className="text-white">
+                          {new Date(audit.finished_at).toLocaleTimeString("es-ES")}
+                        </span>
+                      </div>
+                    )}
+                    {audit?.finished_at && audit?.started_at && (
+                      <div className="flex justify-between">
+                        <span className="text-neutral-500">Duración</span>
+                        <span className="text-white">{formatDuration(audit.started_at, audit.finished_at)}</span>
                       </div>
                     )}
                     <div className="flex justify-between">
@@ -368,7 +391,7 @@ export default function AuditDetailPage() {
           </div>
 
           {/* Column 2 - Terminal - Agent Stream */}
-          <div className="h-full min-h-0 flex flex-col">
+          <div className="h-full min-h-0 flex flex-col min-w-0">
             <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden h-full min-h-0 flex flex-col">
               {/* Terminal header */}
               <div className="flex items-center justify-between px-4 py-3 border-b border-[#262626] bg-[#0a0a0a]/50">
@@ -426,11 +449,11 @@ export default function AuditDetailPage() {
                           {step.type}
                         </span>
                         {step.command_executed && (
-                          <div className="mt-1 px-3 py-1.5 bg-[#0a0a0a] rounded border border-[#262626] text-[#84cc16] text-xs">
+                          <div className="mt-1 px-3 py-1.5 bg-[#0a0a0a] rounded border border-[#262626] text-[#84cc16] text-xs whitespace-pre-wrap break-all">
                             $ {step.command_executed}
                           </div>
                         )}
-                        <pre className="mt-1 text-neutral-300 whitespace-pre-wrap break-words text-xs leading-relaxed">
+                        <pre className="mt-1 text-neutral-300 whitespace-pre-wrap break-all text-xs leading-relaxed">
                           {step.content}
                         </pre>
                       </div>
@@ -512,7 +535,7 @@ export default function AuditDetailPage() {
           </div>
 
           {/* Column 3 - Vulnerabilidades */}
-          <div className="h-full min-h-0 flex flex-col">
+          <div className="h-full min-h-0 flex flex-col min-w-0">
             <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden h-full min-h-0 flex flex-col p-5">
               <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
                 <div className="flex items-center justify-between mb-3">
