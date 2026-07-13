@@ -11,22 +11,28 @@ class OllamaClient:
         self.model = "llama3:8b"
 
     async def generate(self, prompt: str, system: str = "") -> str:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{self.base_url}/api/generate",
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "system": system,
-                    "stream": False,
-                    "options": {"temperature": 0.6, "num_predict": 2048},
-                },
-            )
-            response.raise_for_status()
-            return response.json()["response"]
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "system": system,
+            "stream": False,
+            "keep_alive": "30m",
+            "options": {"temperature": 0.6, "num_predict": 2048},
+        }
+        last_err = None
+        for attempt in range(2):
+            try:
+                async with httpx.AsyncClient(timeout=300.0) as client:
+                    response = await client.post(f"{self.base_url}/api/generate", json=payload)
+                    response.raise_for_status()
+                    return response.json()["response"]
+            except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.TransportError) as e:
+                last_err = e
+                continue
+        raise last_err
 
     async def generate_stream(self, prompt: str, system: str = "") -> AsyncGenerator[str, None]:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=300.0) as client:
             async with client.stream(
                 "POST",
                 f"{self.base_url}/api/generate",
@@ -35,6 +41,7 @@ class OllamaClient:
                     "prompt": prompt,
                     "system": system,
                     "stream": True,
+                    "keep_alive": "30m",
                     "options": {"temperature": 0.6, "num_predict": 2048},
                 },
             ) as response:
