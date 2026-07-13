@@ -236,7 +236,34 @@ def _extract_nmap(output: str) -> list:
 
         findings.extend(_nmap_version_findings(version))
 
+    if re.search(r"Anonymous FTP login allowed", output, re.IGNORECASE):
+        findings.append({
+            "title": "FTP anónimo habilitado",
+            "severity": "medium",
+            "cvss": 5.5,
+            "description": "El servicio FTP permite inicio de sesión anónimo (sin credenciales), exponiendo potencialmente archivos del servidor.",
+            "remediation": "Deshabilitar el acceso anónimo en la configuración del servidor FTP (p. ej. anonymous_enable=NO en vsftpd).",
+            "cve_id": None,
+        })
+
     return findings
+
+
+def _extract_ftp_anon(output: str) -> list[dict]:
+    low = output.lower()
+    # curl -v prints "230" on successful anonymous login; "530" means denied.
+    success = ("230" in output) or ("login successful" in low) or ("drwx" in low) or ("<dir>" in low)
+    denied = "530" in output or "login incorrect" in low or "access denied" in low
+    if success and not denied:
+        return [{
+            "title": "FTP anónimo habilitado",
+            "severity": "medium",
+            "cvss": 5.5,
+            "description": "Se confirmó inicio de sesión FTP anónimo (usuario 'anonymous' sin contraseña); el servidor permite listar/descargar archivos sin autenticación.",
+            "remediation": "Deshabilitar el acceso anónimo en la configuración del servidor FTP (p. ej. anonymous_enable=NO en vsftpd).",
+            "cve_id": None,
+        }]
+    return []
 
 
 def _extract_nuclei(output: str) -> list:
@@ -320,6 +347,8 @@ def extract_findings(tool_name: str, command: str, output: str) -> list:
             findings = _extract_nuclei(output)
         elif name == "nikto":
             findings = _extract_nikto(output)
+        elif name == "ftp_anon":
+            findings = _extract_ftp_anon(output)
         else:
             return []
 

@@ -7,7 +7,7 @@ from typing import Any, Iterable
 
 # service/port -> suggested attack tool + reason
 _ATTACK_MAP = {
-    "ftp": ("hydra", "Servicio FTP expuesto: probar fuerza bruta de credenciales"),
+    "ftp": ("ftp_anon", "Servicio FTP expuesto: probar acceso anónimo sin credenciales (y fuerza bruta con hydra)"),
     "ssh": ("hydra", "SSH expuesto: probar fuerza bruta de credenciales"),
     "telnet": ("hydra", "Telnet en texto plano: credenciales y fuerza bruta"),
     "smtp": ("nmap", "SMTP: enumerar usuarios y relay abierto"),

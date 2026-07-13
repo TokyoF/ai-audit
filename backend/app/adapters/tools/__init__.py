@@ -1,6 +1,7 @@
 from app.adapters.tools.base import BaseTool, ToolResult
 from app.adapters.tools.dnsrecon import DnsreconTool
 from app.adapters.tools.enum4linux import Enum4linuxTool
+from app.adapters.tools.ftp_anon import FtpAnonTool
 from app.adapters.tools.gobuster import GobusterTool
 from app.adapters.tools.hydra import HydraTool
 from app.adapters.tools.masscan import MasscanTool
@@ -23,6 +24,7 @@ AVAILABLE_TOOLS: dict[str, BaseTool] = {
     "dnsrecon": DnsreconTool(),
     "enum4linux": Enum4linuxTool(),
     "nuclei": NucleiTool(),
+    "ftp_anon": FtpAnonTool(),
 }
 
 __all__ = [
@@ -40,4 +42,5 @@ __all__ = [
     "DnsreconTool",
     "Enum4linuxTool",
     "NucleiTool",
+    "FtpAnonTool",
 ]

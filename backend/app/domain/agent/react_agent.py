@@ -30,6 +30,7 @@ Available tools:
 - dnsrecon: DNS enumeration. Parameters: domain (required)
 - enum4linux: SMB/Samba enumeration. Parameters: target (required)
 - nuclei: template-based CVE/misconfig scanner (use for known-CVE detection). Parameters: url/target (required), optional severity (critical,high,medium), optional tags
+- ftp_anon: Tests anonymous FTP login (no credentials) on port 21 and lists the root directory. Parameters: target (required), port (optional, default 21)
 
 You MUST respond in this exact format every time:
 
@@ -61,7 +62,7 @@ Rules:
 Diversification rules:
 - Do NOT repeat an identical ACTION with identical PARAMS. If a scan already ran, choose a DIFFERENT tool or a different nmap scan_type.
 - Escalate nmap scans progressively: start with basic, then full (all ports), then vuln (NSE vuln scripts), and udp when relevant. Use each scan_type at most once unless new information justifies it.
-- After enumeration, pivot to service-specific tools: hydra for exposed auth services (ssh/ftp/http), sqlmap for web apps with parameters.
+- After enumeration, pivot to service-specific tools: use ftp_anon to check anonymous FTP access when port 21 is open, hydra for credential brute force on exposed auth services (ssh/ftp/http), sqlmap for web apps with parameters.
 - Only respond DONE when you have tried multiple distinct techniques and no further useful action remains. Do not declare DONE just because one scan finished.
 
 REPORTING:
