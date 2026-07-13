@@ -1,9 +1,11 @@
 import asyncio
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 
 TOOLS_CONTAINER = "aiaudit-tools"
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
 @dataclass
@@ -47,6 +49,7 @@ class BaseTool(ABC):
                 err_text = stderr.decode(errors="replace")
                 if err_text.strip():
                     output += "\n" + err_text
+            output = _ANSI_RE.sub("", output)
             output = output.strip() or "(no output)"
             if process.returncode != 0:
                 lowered = output.lower()
