@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { API_URL, WS_URL } from "@/lib/api";
 
 interface AgentStep {
   type: string;
@@ -105,7 +106,7 @@ export default function AuditDetailPage() {
 
   const fetchAudit = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/audits/${auditId}`, {
+      const res = await fetch(`${API_URL}/audits/${auditId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -120,7 +121,7 @@ export default function AuditDetailPage() {
 
   const fetchFindings = async () => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/audits/${auditId}/findings`, {
+      const res = await fetch(`${API_URL}/audits/${auditId}/findings`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -154,7 +155,7 @@ export default function AuditDetailPage() {
   const exportPdf = async () => {
     try {
       const res = await fetch(
-        `http://localhost:8000/api/v1/audits/${auditId}/report.pdf`,
+        `${API_URL}/audits/${auditId}/report.pdf`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!res.ok) return;
@@ -183,7 +184,7 @@ export default function AuditDetailPage() {
     if (!token) return;
     setRunning(true);
 
-    const ws = new WebSocket(`ws://localhost:8000/api/v1/audits/${auditId}/stream?token=${token}`);
+    const ws = new WebSocket(`${WS_URL}/audits/${auditId}/stream?token=${token}`);
     wsRef.current = ws;
 
     ws.onopen = () => {

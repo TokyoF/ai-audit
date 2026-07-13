@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { API_URL } from "@/lib/api";
 
 interface Audit {
   id: string;
@@ -53,7 +54,7 @@ export default function DashboardPage() {
 
   const fetchAudits = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/v1/audits", {
+      const res = await fetch(`${API_URL}/audits`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) {
@@ -74,7 +75,7 @@ export default function DashboardPage() {
     e.preventDefault();
     setCreating(true);
     try {
-      const res = await fetch("http://localhost:8000/api/v1/audits", {
+      const res = await fetch(`${API_URL}/audits`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -100,7 +101,7 @@ export default function DashboardPage() {
       return;
     }
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/audits/${id}`, {
+      const res = await fetch(`${API_URL}/audits/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -114,7 +115,7 @@ export default function DashboardPage() {
 
   const setAuditStatus = async (id: string, status: string) => {
     try {
-      const res = await fetch(`http://localhost:8000/api/v1/audits/${id}/status`, {
+      const res = await fetch(`${API_URL}/audits/${id}/status`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
