@@ -126,7 +126,10 @@ export default function AuditDetailPage() {
         setAttacks(data.suggested_attacks || []);
         if (!running && Array.isArray(data.logs)) {
           const mappedLogs: AgentStep[] = data.logs.map((log: any) => ({
-            type: log.step_type,
+            type:
+              typeof log.content === "string" && log.content.startsWith("📝 Auditor:")
+                ? "operator"
+                : log.step_type,
             content: log.content,
             tool_used: log.tool_used,
             command_executed: log.command_executed,
@@ -176,10 +179,9 @@ export default function AuditDetailPage() {
 
     ws.onopen = () => {
       setConnected(true);
-      if (pendingContextRef.current) {
-        ws.send(JSON.stringify({ type: "guidance", content: pendingContextRef.current }));
-        pendingContextRef.current = null;
-      }
+      const ctx = pendingContextRef.current || null;
+      ws.send(JSON.stringify({ type: "start", context: ctx }));
+      pendingContextRef.current = null;
     };
 
     ws.onmessage = (event) => {
@@ -189,6 +191,12 @@ export default function AuditDetailPage() {
         setStatus(data.audit_status);
       }
       if (data.type === "done") {
+        setRunning(false);
+        setConnected(false);
+        fetchFindings();
+        fetchAudit();
+      }
+      if (data.type === "error") {
         setRunning(false);
         setConnected(false);
         fetchFindings();
