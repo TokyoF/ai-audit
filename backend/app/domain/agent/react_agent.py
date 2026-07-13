@@ -206,7 +206,7 @@ class ReactAgent:
                     await self._save_vulnerability(session, parsed)
 
                     finding_msg = f"VULNERABILITY FOUND: [{parsed['severity'].upper()}] {parsed['title']}\n{parsed['description']}"
-                    await self._emit(AgentStep(step_type="observation", content=finding_msg))
+                    await self._emit(AgentStep(step_type="finding", content=finding_msg))
                     await self._log_step(session, "observation", finding_msg)
 
                     audit = await session.get(Audit, self.audit_id)
@@ -419,7 +419,7 @@ class ReactAgent:
                 added = True
 
                 await self._emit(AgentStep(
-                    step_type="observation",
+                    step_type="finding",
                     content=f"[{severity.upper()}] {title}",
                 ))
 

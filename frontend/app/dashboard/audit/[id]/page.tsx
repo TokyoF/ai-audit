@@ -43,6 +43,8 @@ const STEP_ICONS: Record<string, { icon: string; color: string }> = {
   observation: { icon: "👁", color: "text-blue-400" },
   error: { icon: "❌", color: "text-red-400" },
   done: { icon: "✅", color: "text-green-400" },
+  finding: { icon: "🎯", color: "text-red-400" },
+  operator: { icon: "📝", color: "text-amber-400" },
 };
 
 export default function AuditDetailPage() {
@@ -183,6 +185,9 @@ export default function AuditDetailPage() {
         fetchFindings();
         fetchAudit();
       }
+      if (data.type === "finding") {
+        fetchFindings();
+      }
       scheduleFindingsRefresh();
     };
 
@@ -210,15 +215,17 @@ export default function AuditDetailPage() {
   const sendGuidance = () => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && guidance.trim()) {
       wsRef.current.send(JSON.stringify({ type: "guidance", content: guidance.trim() }));
-      setSteps((prev) => [...prev, { type: "thought", content: `📝 Auditor: ${guidance.trim()}`, audit_status: "scanning" }]);
+      setSteps((prev) => [...prev, { type: "operator", content: `📝 Auditor: ${guidance.trim()}`, audit_status: "scanning" }]);
       setGuidance("");
     }
   };
 
   const startAgentWithContext = () => {
     if (!guidance.trim()) return;
-    pendingContextRef.current = guidance.trim();
+    const text = guidance.trim();
+    pendingContextRef.current = text;
     setGuidance("");
+    setSteps((prev) => [...prev, { type: "operator", content: `📝 Auditor: ${text}`, audit_status: "scanning" }]);
     startAgent();
   };
 
