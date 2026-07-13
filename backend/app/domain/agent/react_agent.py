@@ -97,6 +97,7 @@ class ReactAgent:
     _saved_finding_titles: set = field(default_factory=set)
     _cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     _consecutive_noops: int = 0
+    _consecutive_dups: int = 0
     max_steps: int = 20
 
     async def run(self, session: AsyncSession) -> None:
@@ -111,6 +112,7 @@ class ReactAgent:
         self._executed_actions.clear()
         self._saved_finding_titles.clear()
         self._consecutive_noops = 0
+        self._consecutive_dups = 0
 
         await self._load_history(session)
 
@@ -134,16 +136,21 @@ class ReactAgent:
                 f"USER: El operador te da este contexto adicional y te ordena continuar: {self.resume_context}. "
                 f"Actúa AHORA sobre esta indicación con una ACTION concreta usando una herramienta. NO emitas DONE hasta ejecutarla."
             )
+            await self._log_step(session, "thought", f"📝 Auditor: {self.resume_context}")
 
         try:
             for _ in range(self.max_steps):
                 if self._cancel_event.is_set():
                     break
-                prompt = "\n".join(self._history)
+                prompt = self._build_prompt()
 
                 await self._emit(AgentStep(step_type="thought", content="Thinking..."))
 
-                response = await ollama_client.generate(prompt=prompt, system=SYSTEM_PROMPT)
+                try:
+                    response = await ollama_client.generate(prompt=prompt, system=SYSTEM_PROMPT)
+                except Exception as e:
+                    await self._emit(AgentStep(step_type="error", content=f"El modelo de IA no respondió (timeout o error): {e}"))
+                    break
                 self._history.append(f"ASSISTANT: {response}")
 
                 parsed = self._parse_response(response)
@@ -154,6 +161,10 @@ class ReactAgent:
 
                     action_key = f"{parsed['tool']}:{json.dumps(parsed['params'], sort_keys=True)}"
                     if action_key in self._executed_actions:
+                        self._consecutive_dups += 1
+                        if self._consecutive_dups >= 3:
+                            await self._emit(AgentStep(step_type="thought", content="Sin nuevas técnicas que probar; concluyendo la auditoría."))
+                            break
                         duplicate_msg = (
                             f"You already executed '{parsed['tool']}' with these exact parameters. "
                             "Do NOT repeat it. Choose a different tool or a different nmap scan_type."
@@ -164,6 +175,7 @@ class ReactAgent:
                         continue
                     self._executed_actions.add(action_key)
                     self._consecutive_noops = 0
+                    self._consecutive_dups = 0
 
                     tool_result = await self._execute_tool(parsed["tool"], parsed["params"])
 
@@ -272,11 +284,15 @@ class ReactAgent:
                     self._history.append("USER: Please follow the required response format. Continue the audit.")
 
         finally:
-            audit = await session.get(Audit, self.audit_id)
-            audit.status = AuditStatus.idle
-            audit.finished_at = datetime.now(timezone.utc)
-            session.add(audit)
-            await session.commit()
+            try:
+                audit = await session.get(Audit, self.audit_id)
+                if audit:
+                    audit.status = AuditStatus.idle
+                    audit.finished_at = datetime.now(timezone.utc)
+                    session.add(audit)
+                    await session.commit()
+            except Exception:
+                pass
             self.is_running = False
 
             await self._emit(AgentStep(step_type="done", content="Audit completed"))
@@ -309,6 +325,23 @@ class ReactAgent:
                 self._executed_actions.add(action_key)
             elif log.step_type == StepType.observation:
                 self._history.append(f"OBSERVATION: {log.content}")
+
+    def _build_prompt(self) -> str:
+        # Keep the most recent context to fit the model's window.
+        MAX_ENTRIES = 24
+        PER_ENTRY_CHARS = 1500
+        TOTAL_CHARS = 12000
+        entries = self._history[-MAX_ENTRIES:]
+        trimmed = []
+        for e in entries:
+            if len(e) > PER_ENTRY_CHARS:
+                e = e[:PER_ENTRY_CHARS] + " …[truncado]"
+            trimmed.append(e)
+        prompt = "\n".join(trimmed)
+        # Hard cap: keep the TAIL (most recent + operator instruction is last)
+        if len(prompt) > TOTAL_CHARS:
+            prompt = prompt[-TOTAL_CHARS:]
+        return prompt
 
     async def _emit(self, step: AgentStep) -> None:
         await self.step_queue.put(step)

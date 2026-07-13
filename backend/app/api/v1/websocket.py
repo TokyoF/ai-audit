@@ -10,7 +10,7 @@ from app.adapters.db.session import engine
 from app.core.security import decode_access_token
 from app.domain.agent.react_agent import ReactAgent
 from app.domain.models.audit import Audit, AuditStatus
-from app.domain.models.audit_log import AuditLog
+from app.domain.models.audit_log import AuditLog, StepType
 from app.domain.models.target import Target
 
 router = APIRouter()
@@ -70,8 +70,13 @@ async def audit_stream(websocket: WebSocket, audit_id: str):
     # ("Reanudar con contexto"). Normal "Iniciar agente" sends nothing, so
     # this times out quickly and we start fresh.
     try:
-        first_msg = await asyncio.wait_for(websocket.receive_json(), timeout=0.75)
-        if first_msg.get("type") == "guidance":
+        first_msg = await asyncio.wait_for(websocket.receive_json(), timeout=10.0)
+        mtype = first_msg.get("type")
+        if mtype == "start":
+            ctx = first_msg.get("context")
+            if ctx:
+                agent.resume_context = ctx
+        elif mtype == "guidance":  # backward-compat
             ctx = first_msg.get("content", "")
             if ctx:
                 agent.resume_context = ctx
@@ -105,6 +110,17 @@ async def audit_stream(websocket: WebSocket, audit_id: str):
                     guidance_text = msg.get("content", "")
                     if guidance_text:
                         agent._history.append(f"USER: {guidance_text}")
+                        try:
+                            async with AsyncSession(engine) as gsession:
+                                log = AuditLog(
+                                    audit_id=audit_uuid,
+                                    step_type=StepType.thought,
+                                    content=f"📝 Auditor: {guidance_text}",
+                                )
+                                gsession.add(log)
+                                await gsession.commit()
+                        except Exception:
+                            pass
                         if agent_task is None or agent_task.done():
                             # Agent had stopped/finished: restart it with the
                             # operator-supplied context instead of dropping
@@ -144,7 +160,7 @@ async def audit_stream(websocket: WebSocket, audit_id: str):
                 "audit_status": "awaiting_decision" if step.content == "Vulnerability detected. Waiting for auditor decision..." else ("idle" if step.step_type == "done" else "scanning"),
             })
 
-            if step.step_type == "done":
+            if step.step_type in ("done", "error"):
                 break
 
             if step.content == "Vulnerability detected. Waiting for auditor decision...":
