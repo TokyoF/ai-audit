@@ -22,6 +22,23 @@ _SEVERITY_COLOR = {
     "info": "#0891b2",
 }
 
+_SEVERITY_LABEL = {
+    "critical": "Crítica",
+    "high": "Alta",
+    "medium": "Media",
+    "low": "Baja",
+    "info": "Informativa",
+}
+
+_METHODOLOGY_PHASES = [
+    "Reconocimiento y escaneo de puertos (nmap)",
+    "Identificación de servicios y versiones",
+    "Enumeración web (whatweb, gobuster, nikto, nuclei)",
+    "Pruebas de autenticación (hydra, acceso anónimo FTP)",
+    "Pruebas de inyección (sqlmap)",
+    "Análisis y reporte de hallazgos",
+]
+
 _CREDENTIALS_RE = re.compile(r"usuario '([^']+)', contrase[ñn]a '([^']+)'")
 
 _TEMPLATE_SOURCE = """
@@ -56,10 +73,60 @@ _TEMPLATE_SOURCE = """
         border-left: 4px solid #2563eb;
         padding-left: 8px;
     }
+    h3 {
+        color: #111827;
+        font-size: 11pt;
+        margin-top: 4px;
+        margin-bottom: 4px;
+    }
     .subtitle {
         color: #6b7280;
         font-size: 9pt;
         margin-bottom: 14px;
+    }
+    .cover-wrapper {
+        page-break-after: always;
+        padding-top: 120pt;
+        text-align: center;
+    }
+    .cover-title {
+        font-size: 28pt;
+        font-weight: bold;
+        color: #111827;
+        margin-bottom: 10pt;
+    }
+    .cover-subtitle {
+        font-size: 15pt;
+        color: #2563eb;
+        margin-bottom: 60pt;
+    }
+    .cover-target {
+        font-size: 20pt;
+        font-weight: bold;
+        color: #111827;
+        border-top: 2px solid #111827;
+        border-bottom: 2px solid #111827;
+        padding: 14pt 0;
+        margin: 0 60pt 40pt 60pt;
+    }
+    table.cover-meta {
+        width: 60%;
+        margin: 0 auto;
+        border-collapse: collapse;
+    }
+    table.cover-meta td {
+        padding: 6px 10px;
+        border: 1px solid #e5e7eb;
+        font-size: 9pt;
+    }
+    table.cover-meta td.label {
+        font-weight: bold;
+        background-color: #f9fafb;
+        width: 40%;
+        text-align: left;
+    }
+    .section-page {
+        page-break-before: always;
     }
     table.meta-table {
         width: 100%;
@@ -82,23 +149,81 @@ _TEMPLATE_SOURCE = """
         width: 100%;
         margin-bottom: 14px;
     }
-    table.vulns {
+    table.risk-matrix {
         width: 100%;
         border-collapse: collapse;
         margin-bottom: 16px;
     }
-    table.vulns th {
+    table.risk-matrix th {
         background-color: #1f2937;
         color: #ffffff;
         text-align: left;
         padding: 6px;
         font-size: 9pt;
     }
-    table.vulns td {
+    table.risk-matrix td {
         padding: 6px;
         border: 1px solid #e5e7eb;
-        vertical-align: top;
         font-size: 9pt;
+    }
+    ol.methodology li {
+        margin-bottom: 6px;
+        font-size: 10pt;
+    }
+    .exec-summary {
+        font-size: 10pt;
+        margin-bottom: 10px;
+        text-align: justify;
+    }
+    .risk-verdict {
+        font-weight: bold;
+        padding: 6px 10px;
+        color: #ffffff;
+        background-color: #dc2626;
+        display: inline;
+    }
+    table.finding-block {
+        width: 100%;
+        border-collapse: collapse;
+        border: 1px solid #d1d5db;
+        margin-bottom: 14px;
+        page-break-inside: avoid;
+    }
+    table.finding-block td {
+        padding: 6px 8px;
+        border: 1px solid #e5e7eb;
+        font-size: 9pt;
+        vertical-align: top;
+    }
+    .finding-header-cell {
+        background-color: #f3f4f6;
+        padding: 0;
+    }
+    .finding-severity-badge {
+        color: #ffffff;
+        font-weight: bold;
+        padding: 4px 10px;
+        font-size: 9pt;
+    }
+    .finding-title {
+        font-weight: bold;
+        font-size: 11pt;
+        color: #111827;
+        padding: 6px 8px;
+    }
+    .finding-label {
+        font-weight: bold;
+        color: #374151;
+        width: 18%;
+        background-color: #f9fafb;
+    }
+    .poc-box {
+        font-family: Courier, monospace;
+        font-size: 8pt;
+        background-color: #111827;
+        color: #d1fae5;
+        padding: 8px;
+        white-space: pre-wrap;
     }
     table.logs-table {
         width: 100%;
@@ -128,6 +253,20 @@ _TEMPLATE_SOURCE = """
 </style>
 </head>
 <body>
+
+    <div class="cover-wrapper">
+        <div class="cover-title">AI-AUDIT</div>
+        <div class="cover-subtitle">Informe de Auditoría de Seguridad</div>
+        <div class="cover-target">Objetivo: {{ target_host }}</div>
+        <table class="cover-meta" cellspacing="0" cellpadding="0">
+            <tr><td class="label">ID de auditoría</td><td>{{ audit_id }}</td></tr>
+            <tr><td class="label">Estado</td><td>{{ audit_status }}</td></tr>
+            <tr><td class="label">Generado el</td><td>{{ generated_at }}</td></tr>
+            <tr><td class="label">Inicio</td><td>{{ started_at }}</td></tr>
+            <tr><td class="label">Fin</td><td>{{ finished_at }}</td></tr>
+        </table>
+    </div>
+
     <h1>{{ report_title }}</h1>
     <div class="subtitle">Generado el {{ generated_at }}</div>
 
@@ -142,6 +281,16 @@ _TEMPLATE_SOURCE = """
         {% endif %}
     </table>
 
+    <h2>Resumen ejecutivo</h2>
+    <div class="exec-summary">
+        Se ha llevado a cabo una auditoría de seguridad sobre el objetivo <strong>{{ target_host }}</strong>,
+        identificando un total de <strong>{{ total_vulns }}</strong> hallazgo(s). De estos,
+        <strong>{{ severity_counts.get('critical', 0) }}</strong> son de severidad crítica y
+        <strong>{{ severity_counts.get('high', 0) }}</strong> de severidad alta.
+        Se recomienda priorizar la remediación de los hallazgos críticos y altos descritos en este informe.
+    </div>
+    <div><span class="risk-verdict">{{ risk_verdict }}</span></div>
+
     <h2>Resumen de hallazgos</h2>
     <table class="badges-table" cellspacing="0" cellpadding="0">
         <tr>
@@ -151,6 +300,31 @@ _TEMPLATE_SOURCE = """
         {% endfor %}
         </tr>
     </table>
+
+    <h2>Matriz de riesgo</h2>
+    <table class="risk-matrix" cellspacing="0" cellpadding="0">
+        <thead>
+        <tr>
+            <th>Severidad</th>
+            <th>Cantidad de hallazgos</th>
+        </tr>
+        </thead>
+        <tbody>
+        {% for sev in ['critical', 'high', 'medium', 'low', 'info'] %}
+        <tr>
+            <td style="background-color:{{ severity_colors.get(sev, '#6b7280') }}; color:#ffffff; font-weight:bold;">{{ severity_labels.get(sev, sev|upper) }}</td>
+            <td>{{ risk_matrix.get(sev, 0) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    <h2>Metodología</h2>
+    <ol class="methodology">
+        {% for phase in methodology %}
+        <li>{{ phase }}</li>
+        {% endfor %}
+    </ol>
 
     {% if credentials %}
     <h2>⚠ Credenciales comprometidas</h2>
@@ -170,33 +344,46 @@ _TEMPLATE_SOURCE = """
     </table>
     {% endif %}
 
+    <div class="section-page">
     <h2>Vulnerabilidades detectadas</h2>
-    <table class="vulns" cellspacing="0" cellpadding="0">
-        <thead>
+    {% for v in vulnerabilities %}
+    <table class="finding-block" cellspacing="0" cellpadding="0">
         <tr>
-            <th>Severidad</th>
-            <th>Título</th>
-            <th>CVSS</th>
-            <th>CVE</th>
-            <th>Descripción</th>
-            <th>Remediación</th>
+            <td class="finding-header-cell" colspan="2">
+                <table cellspacing="0" cellpadding="0" style="width:100%;">
+                    <tr>
+                        <td style="width:14%; padding:0;">
+                            <div class="finding-severity-badge" style="background-color:{{ severity_colors.get(v.severity, '#6b7280') }};">{{ v.severity|upper }}</div>
+                        </td>
+                        <td class="finding-title">
+                            {{ v.title }}
+                            {% if v.cvss_score is not none %} (CVSS {{ v.cvss_score }}){% endif %}
+                            {% if v.cve_id %} — {{ v.cve_id }}{% endif %}
+                        </td>
+                    </tr>
+                </table>
+            </td>
         </tr>
-        </thead>
-        <tbody>
-        {% for v in vulnerabilities %}
         <tr>
-            <td style="background-color:{{ severity_colors.get(v.severity, '#6b7280') }}; color:#ffffff; font-weight:bold; text-align:center; padding:4px 8px;">{{ v.severity|upper }}</td>
-            <td>{{ v.title }}</td>
-            <td>{{ v.cvss_score if v.cvss_score is not none else "—" }}</td>
-            <td>{{ v.cve_id if v.cve_id else "—" }}</td>
+            <td class="finding-label">Descripción / Impacto</td>
             <td>{{ v.description }}</td>
+        </tr>
+        {% if v.poc %}
+        <tr>
+            <td class="finding-label">Evidencia</td>
+            <td><div class="poc-box">{{ v.poc }}</div></td>
+        </tr>
+        {% endif %}
+        <tr>
+            <td class="finding-label">Remediación</td>
             <td>{{ v.remediation if v.remediation else "—" }}</td>
         </tr>
-        {% endfor %}
-        </tbody>
     </table>
+    {% endfor %}
+    </div>
 
     {% if logs %}
+    <div class="section-page">
     <h2>Apéndice: registro de actividad (últimas entradas)</h2>
     <table class="logs-table" cellspacing="0" cellpadding="0">
         <thead>
@@ -216,6 +403,7 @@ _TEMPLATE_SOURCE = """
         {% endfor %}
         </tbody>
     </table>
+    </div>
     {% endif %}
 
     <div class="footer-note">
@@ -259,6 +447,14 @@ def _extract_credentials(vulnerabilities: list) -> list[dict]:
     return credentials
 
 
+def _risk_verdict(severity_counts: dict[str, int]) -> str:
+    if severity_counts.get("critical", 0) > 0:
+        return "Riesgo ALTO"
+    if severity_counts.get("high", 0) > 0:
+        return "Riesgo MEDIO-ALTO"
+    return "Riesgo MODERADO/BAJO"
+
+
 def build_audit_pdf(*, audit, target, vulnerabilities: list, logs: list) -> bytes:
     """Build a PDF report for an audit and return the raw PDF bytes."""
     sorted_vulns = sorted(
@@ -281,15 +477,16 @@ def build_audit_pdf(*, audit, target, vulnerabilities: list, logs: list) -> byte
             "cve_id": v.cve_id,
             "description": v.description,
             "remediation": v.remediation,
+            "poc": getattr(v, "poc", None),
         }
         for v in sorted_vulns
     ]
 
     log_rows = []
-    for log in list(logs)[-40:]:
+    for log in list(logs)[-100:]:
         content = log.content or ""
-        if len(content) > 300:
-            content = content[:300] + "…"
+        if len(content) > 600:
+            content = content[:600] + "…"
         log_rows.append(
             {
                 "step_type": log.step_type.value if hasattr(log.step_type, "value") else str(log.step_type),
@@ -297,6 +494,10 @@ def build_audit_pdf(*, audit, target, vulnerabilities: list, logs: list) -> byte
                 "content": content,
             }
         )
+
+    total_vulns = len(vulnerabilities)
+    risk_matrix = severity_counts
+    risk_verdict = _risk_verdict(severity_counts)
 
     env = Environment(autoescape=True)
     template = env.from_string(_TEMPLATE_SOURCE)
@@ -311,9 +512,14 @@ def build_audit_pdf(*, audit, target, vulnerabilities: list, logs: list) -> byte
         audit_summary=getattr(audit, "summary", None),
         severity_counts=severity_counts,
         severity_colors=_SEVERITY_COLOR,
+        severity_labels=_SEVERITY_LABEL,
         credentials=credentials,
         vulnerabilities=vuln_rows,
         logs=log_rows,
+        total_vulns=total_vulns,
+        risk_matrix=risk_matrix,
+        methodology=_METHODOLOGY_PHASES,
+        risk_verdict=risk_verdict,
     )
 
     import io

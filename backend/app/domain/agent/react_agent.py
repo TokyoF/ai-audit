@@ -46,6 +46,8 @@ SEVERITY: <critical|high|medium|low|info>
 CVSS: <score 0.0-10.0>
 DESCRIPTION: <detailed description>
 REMEDIATION: <how to fix it>
+CVE: <CVE-id if known, else omit>
+POC: <short evidence/proof, e.g. the command output line that proves it>
 
 OR if the scan is complete:
 
@@ -64,6 +66,7 @@ Diversification rules:
 - Escalate nmap scans progressively: start with basic, then full (all ports), then vuln (NSE vuln scripts), and udp when relevant. Use each scan_type at most once unless new information justifies it.
 - After enumeration, pivot to service-specific tools: use ftp_anon to check anonymous FTP access when port 21 is open, hydra for credential brute force on exposed auth services (ssh/ftp/http), sqlmap for web apps with parameters.
 - Only respond DONE when you have tried multiple distinct techniques and no further useful action remains. Do not declare DONE just because one scan finished.
+- Before concluding (DONE), ensure you have enumerated web content with gobuster, scanned the web server with nikto and nuclei, and tested any web parameters with sqlmap when an HTTP service is open. Do not conclude after only nmap — a thorough audit runs multiple service-specific tools.
 
 REPORTING:
 - Whenever a tool reveals a concrete weakness, you MUST emit a FINDING block (with SEVERITY and CVSS) BEFORE moving on to the next action. Examples: valid credentials found by hydra (critical), SQL injection confirmed by sqlmap (critical), outdated/vulnerable service versions from nmap (medium/high), issues reported by nikto/nuclei.
@@ -339,6 +342,8 @@ class ReactAgent:
             return {"type": "action", "thought": thought, "tool": tool, "params": params}
 
         if "FINDING:" in response:
+            cve = self._extract(response, "CVE:")
+            poc = self._extract(response, "POC:")
             return {
                 "type": "finding",
                 "thought": self._extract(response, "THOUGHT:"),
@@ -347,6 +352,8 @@ class ReactAgent:
                 "cvss": self._parse_float(self._extract(response, "CVSS:")),
                 "description": self._extract(response, "DESCRIPTION:"),
                 "remediation": self._extract(response, "REMEDIATION:"),
+                "cve_id": cve or None,
+                "poc": poc or None,
             }
 
         if response.strip().lower().startswith("done"):
@@ -384,6 +391,8 @@ class ReactAgent:
         if norm in self._saved_finding_titles:
             return  # already recorded (possibly by auto-extract or a prior run)
         severity_map = {"critical": Severity.critical, "high": Severity.high, "medium": Severity.medium, "low": Severity.low, "info": Severity.info}
+        cid = parsed.get("cve_id")
+        cid = cid if (cid and len(cid) <= 20) else None
         vuln = Vulnerability(
             audit_id=self.audit_id,
             title=title,
@@ -391,6 +400,8 @@ class ReactAgent:
             severity=severity_map.get(parsed["severity"], Severity.info),
             description=parsed["description"],
             remediation=parsed.get("remediation"),
+            cve_id=cid,
+            poc=parsed.get("poc"),
         )
         session.add(vuln)
         self._saved_finding_titles.add(norm)
@@ -420,6 +431,7 @@ class ReactAgent:
                     description=finding.get("description") or title,
                     remediation=finding.get("remediation"),
                     cve_id=finding.get("cve_id"),
+                    poc=finding.get("poc"),
                 )
                 session.add(vuln)
                 self._saved_finding_titles.add(norm)
