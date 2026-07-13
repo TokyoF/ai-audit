@@ -66,6 +66,18 @@ async def audit_stream(websocket: WebSocket, audit_id: str):
 
     agent = ReactAgent(audit_id=audit_uuid, target_host=target_host)
 
+    # Capture optional initial operator context sent right after connect
+    # ("Reanudar con contexto"). Normal "Iniciar agente" sends nothing, so
+    # this times out quickly and we start fresh.
+    try:
+        first_msg = await asyncio.wait_for(websocket.receive_json(), timeout=0.75)
+        if first_msg.get("type") == "guidance":
+            ctx = first_msg.get("content", "")
+            if ctx:
+                agent.resume_context = ctx
+    except asyncio.TimeoutError:
+        first_msg = None
+
     async def run_agent():
         async with AsyncSession(engine) as agent_session:
             try:

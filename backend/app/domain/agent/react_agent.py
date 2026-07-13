@@ -82,6 +82,7 @@ class AgentStep:
 class ReactAgent:
     audit_id: str
     target_host: str
+    resume_context: str | None = None
     step_queue: asyncio.Queue = field(default_factory=asyncio.Queue)
     decision_event: asyncio.Event = field(default_factory=asyncio.Event)
     decision_value: str = "continue"
@@ -91,6 +92,7 @@ class ReactAgent:
     _executed_actions: set = field(default_factory=set)
     _saved_finding_titles: set = field(default_factory=set)
     _cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
+    _consecutive_noops: int = 0
     max_steps: int = 20
 
     async def run(self, session: AsyncSession) -> None:
@@ -104,6 +106,7 @@ class ReactAgent:
         self._history.clear()
         self._executed_actions.clear()
         self._saved_finding_titles.clear()
+        self._consecutive_noops = 0
 
         await self._load_history(session)
 
@@ -121,6 +124,12 @@ class ReactAgent:
         else:
             initial_prompt = f"Begin a security audit on target: {self.target_host}\nStart with reconnaissance."
             self._history.append(f"USER: {initial_prompt}")
+
+        if self.resume_context:
+            self._history.append(
+                f"USER: El operador te da este contexto adicional y te ordena continuar: {self.resume_context}. "
+                f"Actúa AHORA sobre esta indicación con una ACTION concreta usando una herramienta. NO emitas DONE hasta ejecutarla."
+            )
 
         try:
             for _ in range(self.max_steps):
@@ -150,6 +159,7 @@ class ReactAgent:
                         self._history.append(f"OBSERVATION: {duplicate_msg}")
                         continue
                     self._executed_actions.add(action_key)
+                    self._consecutive_noops = 0
 
                     tool_result = await self._execute_tool(parsed["tool"], parsed["params"])
 
@@ -238,6 +248,20 @@ class ReactAgent:
                     await self._log_step(session, "thought", parsed["summary"])
                     break
 
+                elif parsed["type"] == "noop":
+                    self._consecutive_noops += 1
+                    if self._consecutive_noops >= 2:
+                        summary = parsed["thought"] or "Audit completed"
+                        await self._emit(AgentStep(step_type="thought", content=summary))
+                        await self._log_step(session, "thought", summary)
+                        break
+                    self._history.append(
+                        "USER: No hay un humano esperando. NO esperes instrucciones. Continúa de forma autónoma: "
+                        "elige la siguiente herramienta útil contra el objetivo (por ejemplo sqlmap sobre servicios web, "
+                        "nikto, gobuster, hydra) y emite una ACTION concreta, o si de verdad agotaste todo emite DONE:."
+                    )
+                    continue
+
                 else:
                     await self._emit(AgentStep(step_type="thought", content=response[:500]))
                     await self._log_step(session, "thought", response[:500])
@@ -302,6 +326,8 @@ class ReactAgent:
                     "type": "done",
                     "summary": thought or "Audit completed",
                 }
+            if tool.startswith(("none", "noop", "no-op", "no_op", "wait", "n/a", "na", "pass", "null", "nothing")):
+                return {"type": "noop", "thought": thought}
             params_str = self._extract(response, "PARAMS:")
             try:
                 params = json.loads(params_str)
