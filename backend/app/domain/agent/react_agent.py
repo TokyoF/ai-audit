@@ -21,7 +21,7 @@ SYSTEM_PROMPT = """You are an expert cybersecurity penetration tester AI agent. 
 Available tools:
 - nmap: Port scanner. Parameters: target (required), scan_type (basic|full|udp|vuln, default: basic)
 - hydra: Brute force tool. Parameters: target (required), service (ssh|ftp|http, default: ssh), username (default: admin)
-- sqlmap: SQL injection scanner. Parameters: url (required), forms (bool), crawl (bool)
+- sqlmap: SQL injection scanner. Parameters: url OR target (a bare host is accepted and auto-crawled), forms (bool), crawl (bool). Prefer a parametrized URL like http://<target>/product?id=1
 - nikto: web server vulnerability scanner. Parameters: target/url (required), optional port
 - whatweb: web technology fingerprinting. Parameters: url (required)
 - gobuster: directory/file brute force. Parameters: url (required), optional wordlist
@@ -67,6 +67,7 @@ Diversification rules:
 - After enumeration, pivot to service-specific tools: use ftp_anon to check anonymous FTP access when port 21 is open, hydra for credential brute force on exposed auth services (ssh/ftp/http), sqlmap for web apps with parameters.
 - Only respond DONE when you have tried multiple distinct techniques and no further useful action remains. Do not declare DONE just because one scan finished.
 - Before concluding (DONE), ensure you have enumerated web content with gobuster, scanned the web server with nikto and nuclei, and tested any web parameters with sqlmap when an HTTP service is open. Do not conclude after only nmap — a thorough audit runs multiple service-specific tools.
+- If the operator asks to test SQL injection (menciona "SQL", "inyección" o "injection"), you MUST use the sqlmap tool (never curl) with a parametrized URL. Example: ACTION: sqlmap / PARAMS: {"url": "http://<target-host>/product?id=1"}. Always use the target host, never localhost.
 
 REPORTING:
 - Whenever a tool reveals a concrete weakness, you MUST emit a FINDING block (with SEVERITY and CVSS) BEFORE moving on to the next action. Examples: valid credentials found by hydra (critical), SQL injection confirmed by sqlmap (critical), outdated/vulnerable service versions from nmap (medium/high), issues reported by nikto/nuclei.
@@ -98,6 +99,8 @@ class ReactAgent:
     _cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     _consecutive_noops: int = 0
     _consecutive_dups: int = 0
+    _actions_taken: int = 0
+    _resume_guard_used: bool = False
     max_steps: int = 20
 
     async def run(self, session: AsyncSession) -> None:
@@ -113,6 +116,8 @@ class ReactAgent:
         self._saved_finding_titles.clear()
         self._consecutive_noops = 0
         self._consecutive_dups = 0
+        self._actions_taken = 0
+        self._resume_guard_used = False
 
         await self._load_history(session)
 
@@ -176,6 +181,7 @@ class ReactAgent:
                     self._executed_actions.add(action_key)
                     self._consecutive_noops = 0
                     self._consecutive_dups = 0
+                    self._actions_taken += 1
 
                     tool_result = await self._execute_tool(parsed["tool"], parsed["params"])
 
@@ -260,6 +266,18 @@ class ReactAgent:
                         self._history.append("USER: Continue scanning for more vulnerabilities.")
 
                 elif parsed["type"] == "done":
+                    if self.resume_context and self._actions_taken == 0 and not self._resume_guard_used:
+                        self._resume_guard_used = True
+                        nudge = (
+                            f"USER: NO concluyas todavía. El operador te pidió una acción concreta y aún no has "
+                            f"ejecutado ninguna herramienta. Emite AHORA un bloque ACTION real. "
+                            f"Para probar inyección SQL usa la herramienta sqlmap (NO curl) con "
+                            f'PARAMS: {{"url": "http://{self.target_host}/product?id=1"}}. '
+                            f"Usa el host del objetivo, no localhost. No respondas DONE."
+                        )
+                        self._history.append(nudge)
+                        await self._emit(AgentStep(step_type="thought", content="El operador pidió una acción concreta; reintentando en lugar de concluir."))
+                        continue
                     await self._emit(AgentStep(step_type="thought", content=parsed["summary"]))
                     await self._log_step(session, "thought", parsed["summary"])
                     break
