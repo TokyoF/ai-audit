@@ -128,6 +128,27 @@ export default function AuditDetailPage() {
     }
   };
 
+  const exportPdf = async () => {
+    try {
+      const res = await fetch(
+        `http://localhost:8000/api/v1/audits/${auditId}/report.pdf`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `audit-${String(auditId).slice(0, 8)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      /* ignore */
+    }
+  };
+
   const scheduleFindingsRefresh = () => {
     if (findingsRefreshRef.current) clearTimeout(findingsRefreshRef.current);
     findingsRefreshRef.current = setTimeout(() => {
@@ -470,7 +491,16 @@ export default function AuditDetailPage() {
           <div className="h-full min-h-0 flex flex-col">
             <div className="bg-[#111111]/80 border border-[#262626] rounded-2xl overflow-hidden h-full min-h-0 flex flex-col p-5">
               <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
-                <h3 className="text-sm font-semibold text-white mb-3">Vulnerabilidades</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-white">Vulnerabilidades</h3>
+                  <button
+                    onClick={exportPdf}
+                    disabled={vulnerabilities.length === 0}
+                    className="px-3 py-1.5 bg-[#84cc16] hover:bg-[#65a30d] disabled:opacity-40 disabled:cursor-not-allowed text-[#0a0a0a] font-semibold rounded-lg text-xs transition-colors"
+                  >
+                    Exportar PDF
+                  </button>
+                </div>
                 {vulnerabilities.length === 0 ? (
                   <p className="text-xs text-neutral-600">No se han encontrado vulnerabilidades aún</p>
                 ) : (

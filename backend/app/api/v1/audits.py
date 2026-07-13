@@ -14,6 +14,7 @@ from app.domain.models.target import Target
 from app.domain.models.user import User
 from app.domain.models.vulnerability import Vulnerability
 from app.domain.agent.recon_parser import parse_open_ports, suggest_attacks
+from app.domain.reporting.report_service import build_audit_pdf
 from app.domain.schemas.audit import (
     AuditListItem,
     AuditLogResponse,
@@ -199,6 +200,31 @@ async def get_findings(
         logs=log_rows,
         open_ports=open_ports,
         suggested_attacks=suggested_attacks,
+    )
+
+
+@router.get("/{audit_id}/report.pdf")
+async def export_audit_pdf(
+    audit_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    audit = await _get_user_audit(audit_id, current_user.id, session)
+    target = await session.get(Target, audit.target_id)
+    vulns = await session.exec(
+        select(Vulnerability).where(Vulnerability.audit_id == audit_id)
+    )
+    logs = await session.exec(
+        select(AuditLog).where(AuditLog.audit_id == audit_id).order_by(AuditLog.timestamp.asc())
+    )
+    pdf_bytes = build_audit_pdf(
+        audit=audit, target=target, vulnerabilities=list(vulns.all()), logs=list(logs.all())
+    )
+    filename = f"audit-{str(audit_id)[:8]}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
