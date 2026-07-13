@@ -10,7 +10,7 @@ Public API:
 
 import re
 
-__all__ = ["extract_findings"]
+__all__ = ["extract_findings", "normalize_finding_title"]
 
 _KNOWN_SERVICES = [
     "ssh", "ftp", "ftps", "http-get", "http-post-form", "https",
@@ -26,6 +26,22 @@ _SEVERITY_CVSS = {
     "info": 0.0,
     "unknown": 0.0,
 }
+
+
+def normalize_finding_title(title: str) -> str:
+    """Normalize a finding title for cross-scan deduplication.
+    Strips parenthetical version banners (including nested ones like
+    '((Ubuntu))') so slightly different version strings for the same issue
+    collapse to one dedup key.
+    """
+    if not title:
+        return ""
+    stripped = title
+    prev = None
+    while prev != stripped:
+        prev = stripped
+        stripped = re.sub(r"\([^()]*\)", " ", stripped)
+    return re.sub(r"\s+", " ", stripped).strip().lower()
 
 
 def _dedupe_by_title(findings: list) -> list:

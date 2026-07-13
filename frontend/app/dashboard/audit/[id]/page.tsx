@@ -122,7 +122,7 @@ export default function AuditDetailPage() {
             tool_used: log.tool_used,
             command_executed: log.command_executed,
           }));
-          setSteps(mappedLogs);
+          setSteps((prev) => (prev.length === 0 ? mappedLogs : prev));
         }
       }
     } catch (e) {

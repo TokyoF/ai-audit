@@ -13,6 +13,7 @@ from app.domain.models.audit_log import AuditLog
 from app.domain.models.target import Target
 from app.domain.models.user import User
 from app.domain.models.vulnerability import Vulnerability
+from app.domain.agent.finding_extractor import normalize_finding_title
 from app.domain.agent.recon_parser import parse_open_ports, suggest_attacks
 from app.domain.reporting.report_service import build_audit_pdf
 from app.domain.schemas.audit import (
@@ -193,10 +194,22 @@ async def get_findings(
     log_rows = logs.all()
     open_ports = parse_open_ports(log_rows)
     suggested_attacks = suggest_attacks(open_ports)
+
+    vuln_rows = vulns.all()
+    _seen: dict[str, Vulnerability] = {}
+    for v in vuln_rows:
+        key = normalize_finding_title(v.title)
+        existing = _seen.get(key)
+        if existing is None or (v.cvss_score or 0) > (existing.cvss_score or 0):
+            _seen[key] = v
+    deduped_vulns = list(_seen.values())
+    # keep a stable, useful ordering: highest cvss first
+    deduped_vulns.sort(key=lambda v: (v.cvss_score or 0), reverse=True)
+
     return FindingsResponse(
         audit_id=audit.id,
         status=audit.status,
-        vulnerabilities=vulns.all(),
+        vulnerabilities=deduped_vulns,
         logs=log_rows,
         open_ports=open_ports,
         suggested_attacks=suggested_attacks,

@@ -10,7 +10,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from app.adapters.ai.ollama_client import ollama_client
 from app.adapters.tools import AVAILABLE_TOOLS
 from app.adapters.tools.base import ToolResult
-from app.domain.agent.finding_extractor import extract_findings
+from app.domain.agent.finding_extractor import extract_findings, normalize_finding_title
 from app.domain.models.audit import Audit, AuditStatus
 from app.domain.models.audit_log import AuditLog, StepType
 from app.domain.models.vulnerability import Severity, Vulnerability
@@ -115,7 +115,7 @@ class ReactAgent:
                 select(Vulnerability).where(Vulnerability.audit_id == self.audit_id)
             )
             for vuln in existing_vulns.all():
-                self._saved_finding_titles.add(vuln.title)
+                self._saved_finding_titles.add(normalize_finding_title(vuln.title))
         except Exception:
             pass
 
@@ -378,16 +378,21 @@ class ReactAgent:
         return await tool.execute(**params)
 
     async def _save_vulnerability(self, session: AsyncSession, parsed: dict) -> None:
+        title = parsed["title"]
+        norm = normalize_finding_title(title)
+        if norm in self._saved_finding_titles:
+            return  # already recorded (possibly by auto-extract or a prior run)
         severity_map = {"critical": Severity.critical, "high": Severity.high, "medium": Severity.medium, "low": Severity.low, "info": Severity.info}
         vuln = Vulnerability(
             audit_id=self.audit_id,
-            title=parsed["title"],
+            title=title,
             cvss_score=parsed["cvss"],
             severity=severity_map.get(parsed["severity"], Severity.info),
             description=parsed["description"],
             remediation=parsed.get("remediation"),
         )
         session.add(vuln)
+        self._saved_finding_titles.add(norm)
         await session.commit()
 
     async def _auto_extract_findings(self, session: AsyncSession, tool_name: str, command: str, output: str) -> None:
@@ -401,9 +406,9 @@ class ReactAgent:
         try:
             for finding in findings:
                 title = finding.get("title")
-                if not title or title in self._saved_finding_titles:
+                norm = normalize_finding_title(title)
+                if not title or norm in self._saved_finding_titles:
                     continue
-                self._saved_finding_titles.add(title)
 
                 severity = str(finding.get("severity", "info")).lower()
                 vuln = Vulnerability(
@@ -416,6 +421,7 @@ class ReactAgent:
                     cve_id=finding.get("cve_id"),
                 )
                 session.add(vuln)
+                self._saved_finding_titles.add(norm)
                 added = True
 
                 await self._emit(AgentStep(
