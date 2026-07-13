@@ -25,6 +25,8 @@ interface VulnerabilityData {
   cvss_score: number | null;
   description: string;
   remediation: string | null;
+  cve_id: string | null;
+  poc: string | null;
 }
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -66,6 +68,13 @@ export default function AuditDetailPage() {
   const findingsRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [guidance, setGuidance] = useState("");
   const terminalRef = useRef<HTMLDivElement>(null);
+  const [expandedVulns, setExpandedVulns] = useState<Set<string>>(new Set());
+  const toggleVuln = (id: string) =>
+    setExpandedVulns((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   useEffect(() => {
     if (!token) {
@@ -512,23 +521,56 @@ export default function AuditDetailPage() {
                   <p className="text-xs text-neutral-600">No se han encontrado vulnerabilidades aún</p>
                 ) : (
                   <div className="space-y-2">
-                    {vulnerabilities.map((vuln) => (
-                      <div
-                        key={vuln.id}
-                        className="p-3 bg-[#0a0a0a] border border-[#262626] rounded-lg"
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-1">
-                          <span className="text-xs font-medium text-white">{vuln.title}</span>
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${SEVERITY_COLORS[vuln.severity] || SEVERITY_COLORS.info}`}>
-                            {vuln.severity}
-                          </span>
+                    {vulnerabilities.map((vuln) => {
+                      const isExpanded = expandedVulns.has(vuln.id);
+                      return (
+                        <div
+                          key={vuln.id}
+                          onClick={() => toggleVuln(vuln.id)}
+                          className="p-3 bg-[#0a0a0a] border border-[#262626] rounded-lg cursor-pointer hover:border-[#333333] transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <span className="text-xs font-medium text-white">{vuln.title}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full border whitespace-nowrap ${SEVERITY_COLORS[vuln.severity] || SEVERITY_COLORS.info}`}>
+                              {vuln.severity}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap mb-1">
+                            {vuln.cvss_score !== null && (
+                              <span className="text-[10px] text-neutral-500">CVSS: {vuln.cvss_score}</span>
+                            )}
+                            {vuln.cve_id && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                {vuln.cve_id}
+                              </span>
+                            )}
+                          </div>
+                          {isExpanded ? (
+                            <>
+                              <p className="text-[11px] text-neutral-400 mt-1">{vuln.description}</p>
+                              {vuln.poc && (
+                                <div className="mt-2">
+                                  <span className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">Evidencia</span>
+                                  <pre className="text-[10px] text-neutral-300 bg-black/40 rounded p-2 mt-1 whitespace-pre-wrap break-words overflow-x-auto">{vuln.poc}</pre>
+                                </div>
+                              )}
+                              {vuln.remediation && (
+                                <div className="mt-2">
+                                  <span className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">Remediación</span>
+                                  <p className="text-[11px] text-neutral-300 mt-1">{vuln.remediation}</p>
+                                </div>
+                              )}
+                              <span className="text-[10px] text-neutral-600 mt-2 inline-block">▾ ocultar</span>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-[11px] text-neutral-400 mt-1 line-clamp-2">{vuln.description}</p>
+                              <span className="text-[10px] text-neutral-600 mt-1 inline-block">▸ ver detalle</span>
+                            </>
+                          )}
                         </div>
-                        {vuln.cvss_score !== null && (
-                          <span className="text-[10px] text-neutral-500">CVSS: {vuln.cvss_score}</span>
-                        )}
-                        <p className="text-[11px] text-neutral-400 mt-1 line-clamp-2">{vuln.description}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
